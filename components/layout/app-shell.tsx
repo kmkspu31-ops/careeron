@@ -28,6 +28,7 @@ import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { PageTransition } from "@/components/common/page-transition";
 import { Modal } from "@/components/common/modal";
 import { ThemeToggle } from "@/components/common/theme-toggle";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 const navigation = [
   { label: "홈", href: "/", icon: House },
@@ -133,10 +134,32 @@ function SearchDialog({ close }: { close: () => void }) {
 
 function Header({ title }: { title: string }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    void supabase.auth.getUser().then(({ data }) => setSignedInEmail(data.user?.email ?? null));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSignedInEmail(session?.user.email ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function signOut() {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    const { error } = await supabase.auth.signOut();
+    if (error) return;
+    setProfileOpen(false);
+    setSignedInEmail(null);
+    router.refresh();
+  }
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -171,10 +194,10 @@ function Header({ title }: { title: string }) {
           <div className="relative">
             <button onClick={() => { setProfileOpen(!profileOpen); setNotificationOpen(false); }} className="flex items-center gap-2 rounded-lg p-1.5 transition hover:bg-[var(--surface-subtle)]" aria-label="프로필 메뉴">
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">C</span>
-              <span className="hidden text-left sm:block"><span className="block text-xs font-semibold">커리어 메이트</span><span className="block text-[10px] text-muted">게스트</span></span>
+              <span className="hidden text-left sm:block"><span className="block text-xs font-semibold">{signedInEmail ? "회원 계정" : "커리어 메이트"}</span><span className="block max-w-36 truncate text-[10px] text-muted">{signedInEmail ?? "게스트"}</span></span>
               <ChevronDown size={14} className="hidden text-muted sm:block" />
             </button>
-            {profileOpen && <div className="app-surface absolute right-0 top-12 z-30 w-48 rounded-xl p-2 shadow-lg"><Link href="/mypage" onClick={() => setProfileOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--surface-subtle)]">마이페이지</Link><Link href="/login" onClick={() => setProfileOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--surface-subtle)]">로그인 / 회원가입</Link></div>}
+            {profileOpen && <div className="app-surface absolute right-0 top-12 z-30 w-52 rounded-xl p-2 shadow-lg"><Link href="/mypage" onClick={() => setProfileOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--surface-subtle)]">마이페이지</Link>{signedInEmail ? <button type="button" onClick={() => void signOut()} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-[var(--surface-subtle)]">로그아웃</button> : <><Link href="/login" onClick={() => setProfileOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--surface-subtle)]">로그인</Link><Link href="/signup" onClick={() => setProfileOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--surface-subtle)]">회원가입</Link></>}</div>}
           </div>
         </div>
       </header>
