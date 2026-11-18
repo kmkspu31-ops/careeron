@@ -112,3 +112,32 @@ having count(*) > 1;
 | 실제 저장 건수 | 미검증; 제공처 문서의 건수는 저장 건수가 아님 |
 | 마지막 성공 동기화 | 없음 |
 | UI 실제 데이터 표시 | DB 연결 전이라 검증 불가; 빈/설정 필요 상태만 표시해야 함 |
+
+## 고용24 채용정보 API
+
+### 필수 설정
+
+고용24 Open API를 신청해 승인을 받은 뒤 발급된 새 키를 사용하세요. 이전 대화에 키가 평문으로 입력된 적이 있으므로 해당 키는 폐기하고 재발급해야 하며, 재발급 키도 채팅이나 코드에 입력하지 마세요.
+
+GitHub 저장소의 **Settings → Secrets and variables → Actions → New repository secret**에서 다음 Secret을 설정하세요.
+
+| Secret | 설명 |
+|---|---|
+| `WORK24_API_KEY` | 고용24 Open API 인증키 |
+| `CAREERON_DATA_SYNC_URL` | 배포된 서버의 `/api/data-sync` 주소 |
+| `CAREERON_DATA_SYNC_SECRET` | 서버 환경변수 `DATA_SYNC_SECRET`과 동일한 난수 비밀값 |
+
+동기화 서버를 직접 호스팅하는 경우 `WORK24_API_KEY`를 서버 전용 환경변수로도 설정할 수 있습니다. 키는 브라우저에서 사용되지 않습니다. GitHub Actions 워크플로는 매일 17:43 UTC에 실행되며 수동 실행도 지원합니다. 실행당 최대 10페이지(페이지당 100건)를 요청합니다. Work24 연동 브랜치에서는 API 자격 증명 확인과 목록/상세 XML 파싱 점검을 별도로 실행하며, 로그에는 키와 공고 원문을 출력하지 않습니다.
+
+### 데이터베이스 설정 및 이용 조건
+
+1. 별도의 개발/스테이징 Supabase 프로젝트에서 `supabase/migrations/202611190002_work24_job_postings.sql`을 적용하세요. 운영 DB에 적용하지 마세요.
+2. 고용24 API 승인 및 이용 조건을 확인한 후에만 `data_sources`의 `work24-job-postings.usage_status`를 `allowed`로 변경하세요. 마이그레이션은 의도적으로 `review_required`로 등록합니다.
+3. Actions를 수동 실행하고 결과가 성공인지 확인하세요. 키나 인증 헤더를 로그로 출력하지 마세요.
+4. `data_sync_logs`의 `records_seen`, `records_inserted`, `records_updated`, `records_duplicate`, `records_failed`를 확인하고, `catalog_records`에서 Work24의 고유 공고를 집계하세요.
+
+상세 API 결과는 서버 환경변수 `WORK24_API_KEY`가 필요합니다. 현재는 인증된 실제 응답으로 상세 XML 필드와 이용 조건을 검증할 수 없으므로 상세 정보 저장/표시 및 실 API 동기화는 설정 후 별도로 검증해야 합니다.
+
+### GitHub Pages 제한
+
+GitHub Pages는 정적 호스팅이므로 Next.js 서버 렌더링, `/api/data-sync`, Supabase 서버 전용 키 또는 OpenAI/Work24 비밀키를 실행할 수 없습니다. GitHub Pages에서는 서버 기능이 동작하지 않으며, 전체 CAREERON 서비스를 공개하려면 Next.js 서버를 지원하는 호스팅에 배포해야 합니다. 정적 프리뷰를 Pages에 배포하더라도 API/DB 기능을 사용할 수 있다고 표시하면 안 됩니다.

@@ -1,0 +1,31 @@
+name: Work24 job posting sync
+
+on:
+  schedule:
+    - cron: "43 17 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: careeron-work24-job-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync approved Work24 job postings
+        env:
+          SYNC_URL: ${{ secrets.CAREERON_DATA_SYNC_URL }}
+          SYNC_SECRET: ${{ secrets.CAREERON_DATA_SYNC_SECRET }}
+          WORK24_API_KEY: ${{ secrets.WORK24_API_KEY }}
+        run: |
+          if [ -z "$SYNC_URL" ] || [ -z "$SYNC_SECRET" ] || [ -z "$WORK24_API_KEY" ]; then
+            echo "CAREERON_DATA_SYNC_URL, CAREERON_DATA_SYNC_SECRET, and WORK24_API_KEY must be configured."
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --max-time 300 \
+            -X POST "$SYNC_URL" \
+            -H "Authorization: Bearer $SYNC_SECRET" \
+            -H "X-Work24-API-Key: $WORK24_API_KEY" \
+            -H "Content-Type: application/json" \
+            --data '{"sources":["work24-job-postings"]}'

@@ -1,0 +1,128 @@
+name: Work24 API connection check
+
+on:
+  push:
+    branches:
+      - kmkspu31-ops-work24-api-sync
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Work24 list and detail API credentials
+        env:
+          WORK24_API_KEY: ${{ secrets.WORK24_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import sys
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          import xml.etree.ElementTree as ET
+
+          api_key = os.environ.get("WORK24_API_KEY", "").strip()
+          if not api_key:
+              print("WORK24_API_KEY is not registered.")
+              sys.exit(1)
+
+          list_url = "https://www.work24.go.kr/cm/openApi/call/wk/callOpenApiSvcInfo210L01.do"
+          detail_url = "https://www.work24.go.kr/cm/openApi/call/wk/callOpenApiSvcInfo210D01.do"
+
+          def request(url, params):
+              query = urllib.parse.urlencode(params)
+              req = urllib.request.Request(
+                  f"{url}?{query}",
+                  headers={"Accept": "application/xml, text/xml"},
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      return response.status, response.read()
+              except urllib.error.HTTPError as error:
+                  if error.code in (401, 403):
+                      print(f"Authentication or permission failure: HTTP {error.code}")
+                  elif error.code == 429:
+                      print("Request limit exceeded: HTTP 429")
+                  else:
+                      print(f"HTTP request failed: status={error.code}")
+                  sys.exit(1)
+              except Exception as error:
+                  print(f"Network request failed: {type(error).__name__}")
+                  sys.exit(1)
+
+          status, body = request(list_url, {
+              "authKey": api_key,
+              "callTp": "L",
+              "returnType": "XML",
+              "startPage": "1",
+              "display": "1",
+          })
+          if status != 200:
+              print(f"List API failed: HTTP {status}")
+              sys.exit(1)
+          try:
+              root = ET.fromstring(body)
+          except ET.ParseError:
+              print("List API returned invalid XML.")
+              sys.exit(1)
+
+          values = {element.tag.rsplit("}", 1)[-1]: (element.text or "").strip() for element in root.iter()}
+          error_code = next((values.get(name) for name in ("errCd", "errorCode", "resultCode") if values.get(name)), None)
+          if error_code and error_code.upper() not in ("00", "0000", "00000", "SUCCESS"):
+              print(f"List API provider error: code={error_code}")
+              sys.exit(1)
+          total = values.get("total")
+          if total is None:
+              print("List API response did not contain a total field.")
+              sys.exit(1)
+          records = [
+              element for element in root.iter()
+              if element.tag.rsplit("}", 1)[-1] == "wanted"
+          ]
+          print(f"List API authenticated: HTTP {status}; records_in_sample={len(records)}; total={total}")
+
+          wanted_id = next((
+              (element.text or "").strip()
+              for element in root.iter()
+              if element.tag.rsplit("}", 1)[-1] == "wantedAuthNo" and (element.text or "").strip()
+          ), None)
+          if not wanted_id:
+              print("Detail API not tested: no posting ID was returned.")
+              sys.exit(0)
+
+          status, detail_body = request(detail_url, {
+              "authKey": api_key,
+              "callTp": "D",
+              "returnType": "XML",
+              "wantedAuthNo": wanted_id,
+          })
+          if status != 200:
+              print(f"Detail API failed: HTTP {status}")
+              sys.exit(1)
+          try:
+              detail_root = ET.fromstring(detail_body)
+          except ET.ParseError:
+              print("Detail API returned invalid XML.")
+              sys.exit(1)
+          detail_tags = {element.tag.rsplit("}", 1)[-1] for element in detail_root.iter()}
+          if not ({"wanted", "wantedRoot"} & detail_tags):
+              print("Detail API response did not contain a recognized detail record.")
+              sys.exit(1)
+          print(f"Detail API authenticated: HTTP {status}; XML parsed successfully.")
+          PY
