@@ -4,11 +4,13 @@ import {
   ArrowUpRight,
   Award,
   BookOpen,
+  BookOpenCheck,
   BriefcaseBusiness,
   Building2,
   ChevronDown,
   Compass,
   FileUser,
+  GraduationCap,
   House,
   LayoutDashboard,
   LogIn,
@@ -32,9 +34,11 @@ import { ThemeToggle } from "@/components/common/theme-toggle";
 const navigation = [
   { label: "홈", href: "/", icon: House },
   { label: "직업 탐색", href: "/occupations", icon: Compass },
+  { label: "직무 역량", href: "/skills", icon: BookOpenCheck },
   { label: "채용 정보", href: "/jobs", icon: BriefcaseBusiness },
   { label: "기업 정보", href: "/companies", icon: Building2 },
   { label: "자격증", href: "/certificates", icon: Award },
+  { label: "교육 과정", href: "/training", icon: GraduationCap },
   { label: "AI 진로 상담", href: "/ai/career", icon: Sparkles },
   { label: "AI 취업 도우미", href: "/ai/employment", icon: MessageCircle },
   { label: "학습 관리", href: "/study", icon: BookOpen },
@@ -46,9 +50,11 @@ const navigation = [
 const pageNames: Record<string, string> = {
   "/": "홈",
   "/occupations": "직업 탐색",
+  "/skills": "직무 역량",
   "/jobs": "채용 정보",
   "/companies": "기업 정보",
   "/certificates": "자격증",
+  "/training": "교육 과정",
   "/ai/career": "AI 진로 상담",
   "/ai/employment": "AI 취업 도우미",
   "/study": "학습 관리",
@@ -126,7 +132,7 @@ function SearchDialog({ close }: { close: () => void }) {
         <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} className="h-11 flex-1 bg-transparent outline-none" placeholder="무엇을 찾고 계신가요?" aria-label="검색어" />
         <button type="submit" className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">검색</button>
       </form>
-      <div className="mt-3 border-t border-[var(--border)] pt-3 text-xs text-muted">직업, 채용공고, 기업, 자격증을 한 번에 검색합니다.</div>
+      <div className="mt-3 border-t border-[var(--border)] pt-3 text-xs text-muted">채용, 직무, 자격증, 기업, 교육 과정을 한 번에 검색합니다.</div>
     </Modal>
   );
 }

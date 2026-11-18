@@ -1,18 +1,20 @@
+import { CatalogBrowser } from "@/components/common/catalog-browser";
 import { PageHeading } from "@/components/common/ui";
-import { ResourceBrowser, type BrowseItem } from "@/components/common/resource-browser";
-import { companies } from "@/data/mock-data";
+import { parseCatalogFilters } from "@/lib/catalog/params";
+import { searchCatalog } from "@/lib/catalog/server";
 
-const items: BrowseItem[] = companies.map((company) => ({
-  id: company.id,
-  title: company.name,
-  eyebrow: company.industry,
-  description: company.description,
-  meta: `${company.location} · 구성원 ${company.size}`,
-  tags: [company.industry, company.size],
-  href: `/companies/${company.id}`,
-  category: company.industry,
-}));
+export const dynamic = "force-dynamic";
 
-export default function CompaniesPage() {
-  return <div className="content-width"><PageHeading eyebrow="COMPANY DIRECTORY" title="나와 잘 맞는 기업을 발견하세요" description="기업의 분야와 문화를 살펴보고 나에게 맞는 환경을 찾아보세요. 아래 기업은 실제 기업 정보가 아닌 예시입니다." /><ResourceBrowser items={items} categories={["전체", ...Array.from(new Set(companies.map((item) => item.industry)))]} searchPlaceholder="기업명, 업종, 지역 검색" /></div>;
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+export default async function CompaniesPage({ searchParams }: { searchParams: SearchParams }) {
+  const filters = parseCatalogFilters(await searchParams);
+  const page = await searchCatalog("company", filters);
+
+  return (
+    <div className="content-width">
+      <PageHeading eyebrow="COMPANY DIRECTORY" title="공식 기업 정보를 검색하세요" description="현재 공개 데이터 연동이 설정된 기업 정보만 표시합니다. 기업 규모나 복지는 확인된 출처가 없으면 제공하지 않습니다." />
+      <CatalogBrowser type="company" page={page} filters={filters} />
+    </div>
+  );
 }
