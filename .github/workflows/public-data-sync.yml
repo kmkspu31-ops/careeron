@@ -1,0 +1,29 @@
+name: Public catalog sync
+
+on:
+  schedule:
+    - cron: "17 17 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: careeron-public-catalog-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync approved public data sources
+        env:
+          SYNC_URL: ${{ secrets.CAREERON_DATA_SYNC_URL }}
+          SYNC_SECRET: ${{ secrets.CAREERON_DATA_SYNC_SECRET }}
+        run: |
+          if [ -z "$SYNC_URL" ] || [ -z "$SYNC_SECRET" ]; then
+            echo "CAREERON_DATA_SYNC_URL and CAREERON_DATA_SYNC_SECRET must be configured."
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --max-time 300 \
+            -X POST "$SYNC_URL" \
+            -H "Authorization: Bearer $SYNC_SECRET" \
+            -H "Content-Type: application/json" \
+            --data '{}'
