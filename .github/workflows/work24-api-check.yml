@@ -31,6 +31,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import os
+          import re
           import sys
           import urllib.error
           import urllib.parse
@@ -94,7 +95,8 @@ jobs:
               elif any(token in normalized_error for token in ("parameter", "param", "필수", "항목", "요청값")):
                   print("Provider rejected request parameters.")
               else:
-                  print("Provider returned an error response.")
+                  safe_message = re.sub(r"[^가-힣ㄱ-ㅎㅏ-ㅣ\s.,!?]", "", provider_error)[:120].strip()
+                  print(f"Provider returned an error response: {safe_message or 'unclassified'}")
               sys.exit(1)
           if error_code and error_code.upper() not in ("00", "0000", "00000", "SUCCESS"):
               print(f"List API provider error: code={error_code}")
