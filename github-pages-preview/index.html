@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f8fafc">
+    <meta
+      name="description"
+      content="CAREERON 취업·진로 플랫폼의 정적 UI 미리보기입니다."
+    >
+    <title>CAREERON | 커리어의 다음 장</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f8fafc;
+        --surface: #fff;
+        --soft: #f1f5f9;
+        --text: #111827;
+        --muted: #64748b;
+        --line: #e2e8f0;
+        --blue: #2563eb;
+        --blue-soft: #eff6ff;
+      }
+
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.55 Arial, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+      }
+      a { color: inherit; text-decoration: none; }
+      button { font: inherit; }
+      .layout { min-height: 100vh; }
+      .sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        z-index: 3;
+        display: flex;
+        width: 256px;
+        flex-direction: column;
+        border-right: 1px solid var(--line);
+        background: var(--surface);
+        padding: 22px 16px;
+      }
+      .brand { display: flex; align-items: center; gap: 11px; margin: 0 8px 30px; font-size: 17px; font-weight: 800; }
+      .brand-mark {
+        display: grid;
+        width: 36px;
+        height: 36px;
+        place-items: center;
+        border-radius: 12px;
+        background: var(--blue);
+        color: #fff;
+        font-size: 19px;
+      }
+      .nav { display: grid; gap: 4px; }
+      .nav a { display: flex; min-height: 40px; align-items: center; gap: 12px; border-radius: 9px; padding: 8px 12px; color: var(--muted); font-size: 13px; font-weight: 600; }
+      .nav a:hover, .nav a[aria-current="page"] { background: var(--blue-soft); color: #1d4ed8; }
+      .nav-icon { display: grid; width: 20px; place-items: center; color: #64748b; font-size: 16px; }
+      .sidebar-note { margin-top: auto; border-top: 1px solid var(--line); padding: 16px 8px 0; color: var(--muted); font-size: 12px; }
+      .page { min-height: 100vh; margin-left: 256px; }
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        height: 68px;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--line);
+        background: rgb(255 255 255 / 94%);
+        padding: 0 32px;
+        backdrop-filter: blur(12px);
+      }
+      .topbar-title { font-weight: 700; }
+      .preview-label { border: 1px solid #bfdbfe; border-radius: 999px; background: var(--blue-soft); padding: 6px 10px; color: #1d4ed8; font-size: 11px; font-weight: 700; }
+      main { width: min(100%, 1440px); margin: 0 auto; padding: 26px 40px 72px; }
+      .notice {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        border: 1px solid #fde68a;
+        border-radius: 12px;
+        background: #fffbeb;
+        padding: 13px 15px;
+        color: #78350f;
+        font-size: 12px;
+      }
+      .notice strong { display: block; margin-bottom: 2px; font-size: 13px; }
+      .eyebrow { margin: 30px 0 6px; color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .12em; }
+      h1 { margin: 0; font-size: clamp(24px, 3vw, 32px); line-height: 1.25; letter-spacing: -.04em; }
+      .intro { margin: 10px 0 22px; color: var(--muted); }
+      .hero {
+        position: relative;
+        overflow: hidden;
+        border-radius: 20px;
+        background: #0f172a;
+        padding: 38px;
+        color: #fff;
+      }
+      .hero::after {
+        position: absolute;
+        top: -110px;
+        right: -40px;
+        width: 300px;
+        height: 300px;
+        border: 1px solid rgb(255 255 255 / 12%);
+        border-radius: 50%;
+        box-shadow: 0 0 0 48px rgb(255 255 255 / 3%), 0 0 0 96px rgb(255 255 255 / 2%);
+        content: "";
+      }
+      .hero-content { position: relative; z-index: 1; max-width: 650px; }
+      .hero-kicker { display: inline-flex; border: 1px solid rgb(255 255 255 / 18%); border-radius: 999px; background: rgb(255 255 255 / 8%); padding: 6px 11px; color: #bfdbfe; font-size: 11px; }
+      .hero h2 { margin: 18px 0 9px; font-size: clamp(24px, 3.2vw, 34px); line-height: 1.35; letter-spacing: -.04em; }
+      .hero p { max-width: 570px; margin: 0; color: #cbd5e1; font-size: 13px; }
+      .hero-link { display: inline-flex; margin-top: 22px; border-radius: 9px; background: var(--blue); padding: 10px 15px; color: #fff; font-size: 12px; font-weight: 700; }
+      .hero-link:hover { background: #1d4ed8; }
+      .section { margin-top: 32px; scroll-margin-top: 90px; }
+      .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+      .section-heading h2 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+      .section-heading p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+      .status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      .status-card, .catalog-card { border: 1px solid var(--line); border-radius: 15px; background: var(--surface); padding: 17px; }
+      .status-label { color: var(--muted); font-size: 11px; font-weight: 600; }
+      .status-value { display: block; margin-top: 7px; font-size: 16px; font-weight: 750; }
+      .status-detail { margin-top: 4px; color: var(--muted); font-size: 11px; }
+      .catalog-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      .catalog-card { min-height: 158px; transition: border-color .15s, transform .15s; }
+      .catalog-card:hover { transform: translateY(-2px); border-color: #bfdbfe; }
+      .catalog-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 11px; background: var(--blue-soft); color: #1d4ed8; font-size: 17px; }
+      .catalog-card h3 { margin: 13px 0 5px; font-size: 14px; }
+      .catalog-card p { margin: 0; color: var(--muted); font-size: 11px; }
+      .empty-state { border: 1px dashed #cbd5e1; border-radius: 13px; background: rgb(255 255 255 / 70%); padding: 22px; color: var(--muted); text-align: center; font-size: 12px; }
+      .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      .step { border-radius: 14px; background: var(--soft); padding: 16px; }
+      .step b { display: block; margin-bottom: 5px; font-size: 12px; }
+      .step span { color: var(--muted); font-size: 11px; }
+      footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 40px; color: var(--muted); font-size: 11px; }
+      .mobile-nav { display: none; }
+
+      @media (max-width: 1023px) {
+        .sidebar { display: none; }
+        .page { margin-left: 0; padding-bottom: 72px; }
+        .topbar { height: 60px; padding: 0 20px; }
+        main { padding: 22px 24px 48px; }
+        .mobile-nav {
+          position: fixed;
+          inset: auto 0 0;
+          z-index: 4;
+          display: flex;
+          justify-content: space-around;
+          border-top: 1px solid var(--line);
+          background: rgb(255 255 255 / 96%);
+          padding: 8px 4px calc(8px + env(safe-area-inset-bottom));
+          backdrop-filter: blur(12px);
+        }
+        .mobile-nav a { display: grid; justify-items: center; gap: 2px; color: var(--muted); font-size: 10px; }
+        .mobile-nav a:hover { color: var(--blue); }
+      }
+      @media (max-width: 680px) {
+        main { padding: 16px 16px 34px; }
+        .topbar { padding: 0 16px; }
+        .eyebrow { margin-top: 24px; }
+        .hero { padding: 25px 21px; }
+        .hero::after { right: -190px; }
+        .status-grid { grid-template-columns: 1fr; gap: 8px; }
+        .status-card { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 10px; padding: 13px 15px; }
+        .status-value { grid-column: 2; grid-row: 1 / span 2; margin: 0; text-align: right; font-size: 13px; }
+        .status-detail { grid-column: 1; }
+        .catalog-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        .catalog-card { min-height: 145px; padding: 14px; }
+        .steps { grid-template-columns: 1fr; gap: 8px; }
+        .section-heading h2 { font-size: 16px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar" aria-label="주요 메뉴">
+        <a class="brand" href="#top" aria-label="CAREERON 홈">
+          <span class="brand-mark" aria-hidden="true">C</span>
+          <span>CAREERON</span>
+        </a>
+        <nav class="nav">
+          <a href="#top" aria-current="page"><span class="nav-icon" aria-hidden="true">⌂</span>홈</a>
+          <a href="#occupations"><span class="nav-icon" aria-hidden="true">⌖</span>직업 탐색</a>
+          <a href="#skills"><span class="nav-icon" aria-hidden="true">▤</span>직무 역량</a>
+          <a href="#jobs"><span class="nav-icon" aria-hidden="true">▣</span>채용 정보</a>
+          <a href="#companies"><span class="nav-icon" aria-hidden="true">▦</span>기업 정보</a>
+          <a href="#certificates"><span class="nav-icon" aria-hidden="true">◇</span>자격증</a>
+          <a href="#training"><span class="nav-icon" aria-hidden="true">▧</span>교육 과정</a>
+          <a href="#ai"><span class="nav-icon" aria-hidden="true">✦</span>AI 진로 상담</a>
+        </nav>
+        <p class="sidebar-note">공식 데이터와 신뢰할 수 있는 커리어 탐색을 위한 CAREERON</p>
+      </aside>
+
+      <div class="page">
+        <header class="topbar">
+          <span class="topbar-title">홈</span>
+          <span class="preview-label">STATIC PREVIEW</span>
+        </header>
+
+        <main id="top">
+          <div class="notice" role="note">
+            <span aria-hidden="true">ⓘ</span>
+            <div>
+              <strong>GitHub Pages 정적 미리보기</strong>
+              이 화면은 디자인 확인용입니다. 로그인, AI 응답, 검색, Supabase 저장 및 실시간 데이터는 연결되어 있지 않습니다.
+            </div>
+          </div>
+
+          <p class="eyebrow">DISCOVER YOUR CAREER</p>
+          <h1>커리어의 다음 장을 시작해요</h1>
+          <p class="intro">진로 탐색부터 취업 준비까지, 커리어의 다음 단계를 살펴보세요.</p>
+
+          <section class="hero" aria-labelledby="hero-title">
+            <div class="hero-content">
+              <span class="hero-kicker">✦ 공식 출처 기반 커리어 탐색</span>
+              <h2 id="hero-title">나에게 맞는 일을 찾는 여정,<br>지금 시작해볼까요?</h2>
+              <p>CAREERON은 직업·직무, 채용, 자격증, 기업, 교육 정보를 한곳에서 탐색할 수 있도록 준비하고 있습니다.</p>
+              <a class="hero-link" href="#catalog">데이터 영역 둘러보기</a>
+            </div>
+          </section>
+
+          <section class="section" aria-labelledby="status-title">
+            <div class="section-heading">
+              <div>
+                <h2 id="status-title">연결 상태</h2>
+                <p>이 정적 페이지에서는 외부 서비스에 연결하지 않습니다.</p>
+              </div>
+            </div>
+            <div class="status-grid">
+              <article class="status-card">
+                <span class="status-label">AI 상담</span>
+                <strong class="status-value">미연결</strong>
+                <span class="status-detail">서버 배포와 API 설정 필요</span>
+              </article>
+              <article class="status-card">
+                <span class="status-label">계정 및 대화 저장</span>
+                <strong class="status-value">미연결</strong>
+                <span class="status-detail">Supabase 서버 설정 필요</span>
+              </article>
+              <article class="status-card">
+                <span class="status-label">공식 데이터</span>
+                <strong class="status-value">미리보기</strong>
+                <span class="status-detail">실제 데이터는 표시하지 않음</span>
+              </article>
+            </div>
+          </section>
+
+          <section class="section" id="catalog" aria-labelledby="catalog-title">
+            <div class="section-heading">
+              <div>
+                <h2 id="catalog-title">취업·진로 데이터 탐색</h2>
+                <p>실제 출처 데이터가 연결되면 분야별 검색과 상세 정보를 제공합니다.</p>
+              </div>
+            </div>
+            <div class="catalog-grid">
+              <a class="catalog-card" id="occupations" href="#data-note">
+                <span class="catalog-icon" aria-hidden="true">⌖</span>
+                <h3>직업·직무 정보</h3>
+                <p>공식 직업 데이터 연결 후 표시됩니다.</p>
+              </a>
+              <a class="catalog-card" id="skills" href="#data-note">
+                <span class="catalog-icon" aria-hidden="true">▤</span>
+                <h3>NCS 직무 역량</h3>
+                <p>공식 직무 역량 데이터 연결 후 표시됩니다.</p>
+              </a>
+              <a class="catalog-card" id="jobs" href="#data-note">
+                <span class="catalog-icon" aria-hidden="true">▣</span>
+                <h3>전국 채용공고</h3>
+                <p>채용정보 API 승인 후 실제 공고를 표시합니다.</p>
+              </a>
+              <a class="catalog-card" id="certificates" href="#data-note">
+                <span class="catalog-icon" aria-hidden="true">◇</span>
+                <h3>국가자격·시험 일정</h3>
+                <p>공식 자격 정보 연결 후 표시됩니다.</p>
+              </a>
+              <a class="catalog-card" id="companies" href="#data-note">
+                <span class="catalog-icon" aria-hidden="true">▦</span>
+                <h3>기업 정보</h3>
+                <p>검증된 기업 출처 연결 후 표시됩니다.</p>
+              </a>
+              <a class="catalog-card" id="training" href="#data-note">
+                <span class="catalog-icon" aria-hidden="true">▧</span>
+                <h3>직업교육 과정</h3>
+                <p>공식 교육 데이터 연결 후 표시됩니다.</p>
+              </a>
+            </div>
+          </section>
+
+          <section class="section" id="data-note" aria-labelledby="empty-title">
+            <div class="section-heading">
+              <div>
+                <h2 id="empty-title">실제 데이터</h2>
+                <p>이 미리보기에는 예시 채용공고나 임의의 통계가 없습니다.</p>
+              </div>
+            </div>
+            <div class="empty-state">공식 API와 데이터베이스가 연결되면 확인된 정보만 표시됩니다.</div>
+          </section>
+
+          <section class="section" id="ai" aria-labelledby="ai-title">
+            <div class="section-heading">
+              <div>
+                <h2 id="ai-title">AI 진로 상담</h2>
+                <p>AI 기능은 서버 환경에서만 실행할 수 있어 GitHub Pages에서 사용할 수 없습니다.</p>
+              </div>
+            </div>
+            <div class="steps">
+              <div class="step"><b>진로 상담</b><span>실제 AI 연결이 준비되면 이용할 수 있습니다.</span></div>
+              <div class="step"><b>취업 준비</b><span>자기소개서와 면접 도구는 서버 앱에서 제공합니다.</span></div>
+              <div class="step"><b>안전한 저장</b><span>로그인과 대화 동기화는 배포 환경 설정이 필요합니다.</span></div>
+            </div>
+          </section>
+
+          <footer>
+            <span>© 2026 CAREERON · Static UI preview</span>
+            <span>실제 서비스 기능은 서버 배포 후 제공됩니다.</span>
+          </footer>
+        </main>
+      </div>
+    </div>
+
+    <nav class="mobile-nav" aria-label="모바일 빠른 메뉴">
+      <a href="#top"><span aria-hidden="true">⌂</span><span>홈</span></a>
+      <a href="#occupations"><span aria-hidden="true">⌖</span><span>직업</span></a>
+      <a href="#jobs"><span aria-hidden="true">▣</span><span>채용</span></a>
+      <a href="#ai"><span aria-hidden="true">✦</span><span>AI 안내</span></a>
+      <a href="#data-note"><span aria-hidden="true">◇</span><span>데이터</span></a>
+    </nav>
+  </body>
+</html>

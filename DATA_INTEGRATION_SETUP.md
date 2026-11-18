@@ -158,7 +158,7 @@ GitHub 저장소의 **Settings → Secrets and variables → Actions → New rep
 
 ### GitHub Pages 제한
 
-GitHub Pages는 정적 호스팅이므로 Next.js 서버 렌더링, `/api/data-sync`, Supabase 서버 전용 키 또는 OpenAI/Work24 비밀키를 실행할 수 없습니다. GitHub Pages에서는 서버 기능이 동작하지 않으며, 전체 CAREERON 서비스를 공개하려면 Next.js 서버를 지원하는 호스팅에 배포해야 합니다. 정적 프리뷰를 Pages에 배포하더라도 API/DB 기능을 사용할 수 있다고 표시하면 안 됩니다.
+GitHub Pages는 정적 호스팅이므로 Next.js 서버 렌더링, `/api/data-sync`, Supabase 서버 전용 키 또는 OpenAI/Work24 비밀키를 실행할 수 없습니다. Pages에는 `github-pages-preview/index.html`을 별도 정적 UI 미리보기로 배포합니다. 이 미리보기는 실제 공고나 통계를 넣지 않고, 로그인·AI·검색·Supabase 저장 및 동기화가 작동하지 않는다고 표시해야 합니다. 전체 CAREERON 기능을 공개하려면 Next.js 서버를 지원하는 호스팅에 별도로 배포해야 합니다.
 
 ### Vercel 배포
 
