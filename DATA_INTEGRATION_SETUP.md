@@ -136,7 +136,9 @@ GitHub 저장소의 **Settings → Secrets and variables → Actions → New rep
 3. Actions를 수동 실행하고 결과가 성공인지 확인하세요. 키나 인증 헤더를 로그로 출력하지 마세요.
 4. `data_sync_logs`의 `records_seen`, `records_inserted`, `records_updated`, `records_duplicate`, `records_failed`를 확인하고, `catalog_records`에서 Work24의 고유 공고를 집계하세요.
 
-상세 API 결과는 서버 환경변수 `WORK24_API_KEY`가 필요합니다. 현재는 인증된 실제 응답으로 상세 XML 필드와 이용 조건을 검증할 수 없으므로 상세 정보 저장/표시 및 실 API 동기화는 설정 후 별도로 검증해야 합니다.
+2026-11-18 확인: GitHub repository secret 이름은 등록되어 있었지만, 목록 API 요청은 HTTP 200 XML 응답에서 `신청하신 서비스가 존재하지 않습니다` 오류를 반환했습니다. 실제 공고는 수집되지 않았고 상세 API는 호출되지 않았습니다. 고용24에서 신청한 API 서비스와 키의 승인/연결 상태를 확인한 후 재검증하세요. 오류 응답 원문과 자격 증명은 로그에 남기지 않았습니다.
+
+상세 API 결과는 서버 환경변수 `WORK24_API_KEY`가 필요합니다. 실제 상세 응답을 아직 검증하지 못했으며, API 요청 및 DB 동기화는 위 오류와 Supabase 설정 부재로 미완료입니다.
 
 ### GitHub Pages 제한
 

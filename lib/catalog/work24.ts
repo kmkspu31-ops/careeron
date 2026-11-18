@@ -84,6 +84,20 @@ function hasProviderError(payload: unknown): boolean {
     || Boolean(providerCode && !["00", "0000", "00000", "SUCCESS"].includes(providerCode.toUpperCase()));
 }
 
+function getProviderErrorCode(payload: unknown): string {
+  const message = (
+    findWork24Value(payload, "error")
+    ?? findWork24Value(payload, "errMsg")
+    ?? findWork24Value(payload, "errorMessage")
+    ?? ""
+  ).toLowerCase();
+  if (message.includes("서비스가 존재하지 않습니다")) return "work24_service_not_available";
+  if (/auth|key|인증|권한|키/.test(message)) return "work24_auth_failed";
+  if (/limit|quota|초과|제한/.test(message)) return "work24_rate_limited";
+  if (/parameter|param|필수|항목|요청값/.test(message)) return "work24_invalid_parameters";
+  return "work24_provider_error";
+}
+
 function parseDate(value: string | null): string | null {
   if (!value) return null;
   const iso = value.match(/^(\d{4})(\d{2})(\d{2})$/);
@@ -202,7 +216,7 @@ export async function fetchWork24Jobs(
   const raw = await response.text();
   if (raw.length > 10 * 1024 * 1024) throw new Error("work24_response_too_large");
   const payload: unknown = parser.parse(raw.replace(/^\uFEFF/, ""));
-  if (hasProviderError(payload)) throw new Error("work24_provider_error");
+  if (hasProviderError(payload)) throw new Error(getProviderErrorCode(payload));
 
   const rawRecords = findWork24Records(payload, "wanted");
   const records = rawRecords.map(parseWork24Item).filter((record): record is Work24SyncRecord => record !== null);

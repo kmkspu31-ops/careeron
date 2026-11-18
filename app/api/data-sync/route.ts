@@ -610,7 +610,11 @@ async function syncOne(
     await finishSyncLog(config, logId, "completed", seen, counts.inserted, counts.updated, counts.duplicates, invalidRecords);
     return { source_id: sourceId, status: "completed", ...counts, seen, failed_records: invalidRecords };
   } catch (error) {
-    const code = error instanceof SyncError ? error.code : "sync_failed";
+    const code = error instanceof SyncError
+      ? error.code
+      : error instanceof Error && /^work24_[a-z0-9_]+$/.test(error.message)
+        ? error.message
+        : "sync_failed";
     if (logId !== null) {
       try {
         await finishSyncLog(config, logId, "failed", seen, 0, 0, 0, invalidRecords, code);

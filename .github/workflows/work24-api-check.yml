@@ -88,7 +88,9 @@ jobs:
           provider_error = values.get("error", "") or values.get("errMsg", "") or values.get("errorMessage", "")
           if provider_error:
               normalized_error = provider_error.lower()
-              if any(token in normalized_error for token in ("auth", "key", "인증", "권한", "키")):
+              if "서비스가 존재하지 않습니다" in normalized_error:
+                  print("Provider does not recognize this API service for the supplied account/key.")
+              elif any(token in normalized_error for token in ("auth", "key", "인증", "권한", "키")):
                   print("Provider rejected authentication or permission.")
               elif any(token in normalized_error for token in ("limit", "quota", "초과", "제한")):
                   print("Provider request limit or quota was reached.")
