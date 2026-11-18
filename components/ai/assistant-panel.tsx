@@ -421,6 +421,10 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
   }
 
   async function renameConversation(conversation: AiConversation) {
+    if (authStatus === "unavailable") {
+      setNotice("대화 저장 연결을 확인할 수 없어 제목을 변경하지 않았습니다.");
+      return;
+    }
     const title = window.prompt("대화 제목을 입력하세요.", conversation.title)?.trim();
     if (!title) return;
     if (authStatus === "member") {
@@ -443,6 +447,10 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
   }
 
   function deleteConversation(conversation: AiConversation) {
+    if (authStatus === "unavailable") {
+      setNotice("대화 저장 연결을 확인할 수 없어 삭제하지 않았습니다.");
+      return;
+    }
     if (!window.confirm(`"${conversation.title}" 대화를 삭제할까요?`)) return;
     const remove = () => {
       setConversations((current) => current.filter((item) => item.id !== conversation.id));
@@ -530,14 +538,14 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
           {filteredConversations.length === 0 && <p className="px-2 py-4 text-xs text-muted">{conversations.length ? "검색 결과가 없습니다." : "아직 대화가 없습니다."}</p>}
         </div>
         <label className="mt-3 flex items-start gap-2 border-t border-[var(--border)] pt-3 text-[11px] leading-5 text-muted">
-          <input type="checkbox" checked={saveHistory} onChange={(event) => {
+          <input type="checkbox" checked={saveHistory} disabled={authStatus === "unavailable"} onChange={(event) => {
             setSaveHistory(event.target.checked);
             if (!event.target.checked) setGuestConversations([]);
             setNotice(event.target.checked
               ? "이 기기에 대화 저장을 켰습니다."
               : "이 기기에 저장된 CAREERON AI 대화를 삭제했습니다.");
           }} className="mt-1 accent-blue-600" />
-          <span>{authStatus === "member" ? "비회원 기록 보관" : "이 기기에 대화 저장"}<br />끄면 기기에 저장된 비회원 기록도 삭제됩니다.</span>
+          <span>{authStatus === "unavailable" ? "대화 저장 연결 확인 불가" : authStatus === "member" ? "비회원 기록 보관" : "이 기기에 대화 저장"}<br />끄면 기기에 저장된 비회원 기록도 삭제됩니다.</span>
         </label>
       </>
     );
@@ -573,7 +581,9 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
             <p className="text-[11px] text-muted">{currentModeLabel} · {busy
               ? requestStatus === "waiting" ? "AI 응답 대기" : requestStatus === "saving" ? "대화 저장 중" : "답변 스트리밍 중"
               : requestStatus === "saved" ? authStatus === "member" ? "답변 완료 · 대화 저장 완료" : "답변 완료"
-                : requestStatus === "failed" ? "답변 실패" : authStatus === "member" ? "회원 대화는 서버에 저장" : "비회원 대화는 저장 동의 시 브라우저에 저장"}</p>
+                : requestStatus === "failed" ? "답변 실패" : authStatus === "member" ? "회원 대화는 서버에 저장"
+                  : authStatus === "unavailable" ? "대화 저장 연결 확인 불가"
+                    : authStatus === "loading" ? "대화 저장 상태 확인 중" : "비회원 대화는 저장 동의 시 브라우저에 저장"}</p>
             {authStatus === "guest" && <a href="/login" className="text-[10px] font-medium text-blue-700 hover:underline dark:text-blue-300">로그인하면 회원 대화를 동기화할 수 있습니다</a>}
           </div>
           <button type="button" onClick={startNewConversation} disabled={busy} aria-label="새 대화" className="rounded-lg p-2 text-muted hover:bg-[var(--surface-subtle)] disabled:opacity-50"><Plus size={18} /></button>
@@ -656,9 +666,9 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
               placeholder="궁금한 내용을 입력해보세요"
               className="max-h-28 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-muted disabled:opacity-60"
             />
-            <button type="submit" disabled={!draft.trim() || busy} aria-label="메시지 전송" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">
-              <ArrowUp size={18} />
-            </button>
+            {busy
+              ? <button type="button" onClick={() => abortRef.current?.abort()} aria-label="응답 중지" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white transition hover:bg-red-700"><X size={17} /></button>
+              : <button type="submit" disabled={!draft.trim()} aria-label="메시지 전송" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"><ArrowUp size={18} /></button>}
           </div>
           <p className="mt-2 text-center text-[10px] leading-4 text-muted">
             질문과 대화 맥락은 답변 생성을 위해 OpenAI로 전송됩니다. 회원 대화는 계정 서버에, 비회원 대화는 저장 동의 시 이 브라우저에만 보관됩니다. AI 답변은 참고용이며 최신 공식 자료 검색은 연결되지 않았습니다.

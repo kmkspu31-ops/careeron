@@ -19,7 +19,7 @@ export async function createSupabaseServerClient(): Promise<SupabaseClient<Datab
         try {
           cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
         } catch {
-          // Server components cannot write cookies; middleware refreshes the session.
+          // Server Components cannot persist refreshed cookies; writable Route Handlers can.
         }
       },
     },

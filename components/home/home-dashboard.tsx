@@ -37,10 +37,10 @@ export function HomeDashboard() {
       </section>
 
       <div className="section-gap grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="탐색 가능한 직업" value="120+" detail="다양한 분야의 커리어 정보" icon={Compass} />
-        <StatCard label="신규 채용 공고" value="1,240" detail="예시 데이터 · 실제 공고 아님" icon={BriefcaseBusiness} tone="green" />
-        <StatCard label="이번 주 학습 목표" value="3 / 5시간" detail="목표까지 2시간 남았어요" icon={Clock3} tone="amber" />
-        <StatCard label="준비 중인 자격증" value="2개" detail="학습 현황을 기록해보세요" icon={Award} tone="violet" />
+        <StatCard label="예시 직업 데이터" value={`${occupations.length}개`} detail="실제 직업 정보 연동 전" icon={Compass} />
+        <StatCard label="예시 채용공고 데이터" value={`${jobs.length}개`} detail="실제 채용 정보 연동 전" icon={BriefcaseBusiness} tone="green" />
+        <StatCard label="학습 기록" value="연동 필요" detail="개인별 진행 상황은 저장되지 않습니다" icon={Clock3} tone="amber" />
+        <StatCard label="자격증 기록" value="연동 필요" detail="회원별 학습 기록은 저장되지 않습니다" icon={Award} tone="violet" />
       </div>
 
       <section className="section-gap">

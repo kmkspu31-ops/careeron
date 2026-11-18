@@ -57,11 +57,16 @@ export async function DELETE(): Promise<Response> {
   const { data: authData, error: authError } = await supabase.auth.getUser();
   if (authError || !authData.user) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
 
-  const response = await fetch(`${url.replace(/\/$/, "")}/auth/v1/admin/users/${encodeURIComponent(authData.user.id)}`, {
-    method: "DELETE",
-    headers: { apikey: adminKey, Authorization: `Bearer ${adminKey}` },
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${url.replace(/\/$/, "")}/auth/v1/admin/users/${encodeURIComponent(authData.user.id)}`, {
+      method: "DELETE",
+      headers: { apikey: adminKey, Authorization: `Bearer ${adminKey}` },
+      cache: "no-store",
+    });
+  } catch {
+    return NextResponse.json({ error: "계정 삭제 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요." }, { status: 502 });
+  }
   if (!response.ok) return NextResponse.json({ error: "계정을 삭제하지 못했습니다. 관리자에게 문의해 주세요." }, { status: 502 });
   await supabase.auth.signOut();
   return NextResponse.json({ ok: true });

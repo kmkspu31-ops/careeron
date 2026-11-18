@@ -54,6 +54,14 @@ alter table public.ai_usage
   add column if not exists status text not null default 'completed'
     check (status in ('completed', 'failed'));
 
+alter table public.ai_usage drop constraint if exists ai_usage_user_id_fkey;
+alter table public.ai_usage
+  add constraint ai_usage_user_id_fkey
+  foreign key (user_id) references auth.users(id) on delete cascade;
+create index if not exists ai_usage_user_created_idx
+  on public.ai_usage (user_id, created_at desc)
+  where user_id is not null;
+
 drop function if exists public.reserve_ai_daily_request(text, integer);
 create function public.reserve_ai_daily_request(
   p_subject_hash text,

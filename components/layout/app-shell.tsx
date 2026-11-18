@@ -140,6 +140,7 @@ function Header({ title }: { title: string }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
+  const [authMessage, setAuthMessage] = useState("");
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -153,9 +154,21 @@ function Header({ title }: { title: string }) {
 
   async function signOut() {
     const supabase = createSupabaseBrowserClient();
-    if (!supabase) return;
-    const { error } = await supabase.auth.signOut();
-    if (error) return;
+    if (!supabase) {
+      setAuthMessage("로그아웃을 사용하려면 Supabase 설정이 필요합니다.");
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        setAuthMessage("로그아웃하지 못했습니다. 다시 시도해 주세요.");
+        return;
+      }
+    } catch {
+      setAuthMessage("로그아웃하지 못했습니다. 다시 시도해 주세요.");
+      return;
+    }
+    setAuthMessage("");
     setProfileOpen(false);
     setSignedInEmail(null);
     router.refresh();
@@ -186,18 +199,18 @@ function Header({ title }: { title: string }) {
             <Search size={16} /><span className="hidden flex-1 md:block">통합 검색</span><kbd className="hidden rounded border border-[var(--border)] px-1.5 py-0.5 text-[10px] md:block">⌘ K</kbd>
           </button>
           <div className="relative">
-            <button onClick={() => { setNotificationOpen(!notificationOpen); setProfileOpen(false); }} className="relative flex h-10 w-10 items-center justify-center rounded-lg text-muted transition hover:bg-[var(--surface-subtle)]" aria-label="알림">
-              <Bell size={18} /><span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-blue-600 ring-2 ring-[var(--surface)]" />
+            <button onClick={() => { setNotificationOpen(!notificationOpen); setProfileOpen(false); }} aria-expanded={notificationOpen} className="relative flex h-10 w-10 items-center justify-center rounded-lg text-muted transition hover:bg-[var(--surface-subtle)]" aria-label="알림">
+              <Bell size={18} />
             </button>
-            {notificationOpen && <div className="app-surface absolute right-0 top-12 z-30 w-72 rounded-xl p-4 shadow-lg"><div className="mb-2 flex items-center justify-between font-semibold">알림 <span className="text-xs font-normal text-muted">최근</span></div><p className="text-sm text-muted">새로운 알림이 없습니다.</p></div>}
+            {notificationOpen && <div className="app-surface absolute right-0 top-12 z-30 w-72 rounded-xl p-4 shadow-lg"><div className="mb-2 font-semibold">알림</div><p className="text-sm text-muted">알림 기능은 아직 연결되지 않았습니다.</p></div>}
           </div>
           <div className="relative">
-            <button onClick={() => { setProfileOpen(!profileOpen); setNotificationOpen(false); }} className="flex items-center gap-2 rounded-lg p-1.5 transition hover:bg-[var(--surface-subtle)]" aria-label="프로필 메뉴">
+            <button onClick={() => { setProfileOpen(!profileOpen); setNotificationOpen(false); setAuthMessage(""); }} aria-expanded={profileOpen} className="flex items-center gap-2 rounded-lg p-1.5 transition hover:bg-[var(--surface-subtle)]" aria-label="프로필 메뉴">
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">C</span>
               <span className="hidden text-left sm:block"><span className="block text-xs font-semibold">{signedInEmail ? "회원 계정" : "커리어 메이트"}</span><span className="block max-w-36 truncate text-[10px] text-muted">{signedInEmail ?? "게스트"}</span></span>
               <ChevronDown size={14} className="hidden text-muted sm:block" />
             </button>
-            {profileOpen && <div className="app-surface absolute right-0 top-12 z-30 w-52 rounded-xl p-2 shadow-lg"><Link href="/mypage" onClick={() => setProfileOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--surface-subtle)]">마이페이지</Link>{signedInEmail ? <button type="button" onClick={() => void signOut()} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-[var(--surface-subtle)]">로그아웃</button> : <><Link href="/login" onClick={() => setProfileOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--surface-subtle)]">로그인</Link><Link href="/signup" onClick={() => setProfileOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--surface-subtle)]">회원가입</Link></>}</div>}
+            {profileOpen && <div className="app-surface absolute right-0 top-12 z-30 w-52 rounded-xl p-2 shadow-lg"><Link href="/mypage" onClick={() => setProfileOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--surface-subtle)]">마이페이지</Link>{signedInEmail ? <button type="button" onClick={() => void signOut()} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-[var(--surface-subtle)]">로그아웃</button> : <><Link href="/login" onClick={() => setProfileOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--surface-subtle)]">로그인</Link><Link href="/signup" onClick={() => setProfileOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--surface-subtle)]">회원가입</Link></>}{authMessage && <p role="alert" className="px-3 py-2 text-xs text-red-600">{authMessage}</p>}</div>}
           </div>
         </div>
       </header>
@@ -208,7 +221,7 @@ function Header({ title }: { title: string }) {
             <div className="mb-4 flex items-center justify-between"><Link href="/" onClick={() => setMobileMenuOpen(false)} className="font-extrabold">CAREERON</Link><button onClick={() => setMobileMenuOpen(false)} aria-label="메뉴 닫기"><X size={20} /></button></div>
             <nav className="thin-scrollbar flex-1 space-y-1 overflow-auto">{navigation.map((item) => <div key={item.href} onClick={() => setMobileMenuOpen(false)}><SidebarLink {...item} active={isActive(pathname, item.href)} /></div>)}</nav>
             <div className="mt-3 flex items-center justify-between border-t border-[var(--border)] pt-4"><span className="text-sm text-muted">테마 전환</span><ThemeToggle /></div>
-            <Link href="/login" onClick={() => setMobileMenuOpen(false)} className="mt-3 flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 text-sm font-semibold text-white"><LogIn size={16} /> 로그인</Link>
+            <Link href={signedInEmail ? "/mypage" : "/login"} onClick={() => setMobileMenuOpen(false)} className="mt-3 flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 text-sm font-semibold text-white">{signedInEmail ? <UserRound size={16} /> : <LogIn size={16} />}{signedInEmail ? "마이페이지" : "로그인"}</Link>
           </aside>
         </div>
       )}

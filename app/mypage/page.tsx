@@ -92,8 +92,13 @@ export default function MyPage() {
       setMessage("Supabase 설정을 확인해 주세요.");
       return;
     }
-    const { error } = await supabase.auth.signOut();
-    if (error) {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        setMessage("로그아웃하지 못했습니다. 다시 시도해 주세요.");
+        return;
+      }
+    } catch {
       setMessage("로그아웃하지 못했습니다. 다시 시도해 주세요.");
       return;
     }
