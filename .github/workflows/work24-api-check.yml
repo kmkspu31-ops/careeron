@@ -84,6 +84,18 @@ jobs:
 
           values = {element.tag.rsplit("}", 1)[-1]: (element.text or "").strip() for element in root.iter()}
           error_code = next((values.get(name) for name in ("errCd", "errorCode", "resultCode") if values.get(name)), None)
+          provider_error = values.get("error", "") or values.get("errMsg", "") or values.get("errorMessage", "")
+          if provider_error:
+              normalized_error = provider_error.lower()
+              if any(token in normalized_error for token in ("auth", "key", "인증", "권한", "키")):
+                  print("Provider rejected authentication or permission.")
+              elif any(token in normalized_error for token in ("limit", "quota", "초과", "제한")):
+                  print("Provider request limit or quota was reached.")
+              elif any(token in normalized_error for token in ("parameter", "param", "필수", "항목", "요청값")):
+                  print("Provider rejected request parameters.")
+              else:
+                  print("Provider returned an error response.")
+              sys.exit(1)
           if error_code and error_code.upper() not in ("00", "0000", "00000", "SUCCESS"):
               print(f"List API provider error: code={error_code}")
               sys.exit(1)
