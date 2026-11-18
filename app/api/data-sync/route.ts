@@ -4,6 +4,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { XMLParser } from "fast-xml-parser";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminConfig } from "@/lib/catalog/server";
+import { fetchWithRetry } from "@/lib/catalog/fetch-with-retry";
 import { fetchWork24Jobs, WORK24_LIST_URL, WORK24_SOURCE_ID, type Work24SyncRecord } from "@/lib/catalog/work24";
 import type { CatalogType } from "@/lib/catalog/types";
 
@@ -60,12 +61,21 @@ type SyncResult = {
   error?: string;
 };
 
+type SyncCounts = {
+  seen: number;
+  inserted: number;
+  updated: number;
+  duplicates: number;
+};
+
 class SyncError extends Error {
   code: string;
+  counts?: SyncCounts;
 
-  constructor(code: string) {
+  constructor(code: string, counts?: SyncCounts) {
     super(code);
     this.code = code;
+    this.counts = counts;
   }
 }
 
@@ -117,6 +127,18 @@ function findValue(value: unknown, names: string[], depth = 0): string | null {
   return null;
 }
 
+function classifyProviderMessage(message: string): string | null {
+  const normalized = message.toLowerCase();
+  if (/auth|key|인증|권한|서비스키/.test(normalized)) return "provider_auth_failed";
+  if (/limit|quota|초과|제한/.test(normalized)) return "provider_rate_limited";
+  if (/parameter|param|필수|요청값/.test(normalized)) return "provider_invalid_parameters";
+  if (/service.*(not|does not|unavailable)|서비스.*(존재하지|없습니다|신청|승인)/.test(normalized)) {
+    return "provider_service_not_available";
+  }
+  if (/error|fail|오류|실패/.test(normalized)) return "provider_error";
+  return null;
+}
+
 function parseDate(value: string | null): string | null {
   if (!value) return null;
   const compact = value.match(/^(\d{4})(\d{2})(\d{2})$/);
@@ -149,14 +171,35 @@ function safeHttpsUrl(value: string | null): string | null {
   }
 }
 
+async function fetchDatabase(input: string | URL, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, { ...init, signal: AbortSignal.timeout(15_000) });
+  } catch {
+    throw new SyncError("supabase_connection_failed");
+  }
+}
+
 async function fetchPayload(url: URL): Promise<unknown> {
-  const response = await fetch(url, {
-    headers: { Accept: "application/json, application/xml, text/xml;q=0.9" },
-    cache: "no-store",
-    redirect: "error",
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) throw new SyncError(`provider_http_${response.status}`);
+  let response: Response;
+  try {
+    response = await fetchWithRetry(url, {
+      headers: { Accept: "application/json, application/xml, text/xml;q=0.9" },
+      cache: "no-store",
+      redirect: "error",
+    });
+  } catch (error) {
+    throw new SyncError(error instanceof Error && error.name === "TimeoutError"
+      ? "provider_timeout"
+      : "provider_network_error");
+  }
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) throw new SyncError("provider_auth_failed");
+    if (response.status === 404) throw new SyncError("provider_service_not_available");
+    if (response.status === 400) throw new SyncError("provider_invalid_parameters");
+    if (response.status === 429) throw new SyncError("provider_rate_limited");
+    if (response.status >= 500) throw new SyncError("provider_unavailable");
+    throw new SyncError(`provider_http_${response.status}`);
+  }
   const text = (await response.text()).replace(/^\uFEFF/, "");
   if (!text.trim()) throw new SyncError("empty_provider_response");
 
@@ -171,10 +214,16 @@ async function fetchPayload(url: URL): Promise<unknown> {
     }
   }
 
-  const resultCode = findValue(payload, ["resultCode", "resultcode", "errCode"]);
+  const resultCode = findValue(payload, ["resultCode", "resultcode", "errCode", "returnReasonCode"]);
+  const resultMessage = findValue(payload, ["resultMsg", "errMsg", "error", "errorMessage", "returnAuthMsg"]);
   if (resultCode && !["00", "0000", "0"].includes(resultCode)) {
+    const classified = resultMessage ? classifyProviderMessage(resultMessage) : null;
+    if (classified) throw new SyncError(classified);
+    if (resultCode === "31") throw new SyncError("provider_rate_limited");
     throw new SyncError(`provider_${resultCode.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "error"}`);
   }
+  const classifiedMessage = resultMessage ? classifyProviderMessage(resultMessage) : null;
+  if (classifiedMessage) throw new SyncError(classifiedMessage);
   return payload;
 }
 
@@ -399,7 +448,7 @@ async function getSource(config: { url: string; key: string }, sourceId: SourceI
   const url = new URL(`${config.url}/rest/v1/data_sources`);
   url.searchParams.set("select", "id,api_url,dataset_url,usage_status");
   url.searchParams.set("id", `eq.${sourceId}`);
-  const response = await fetch(url, {
+  const response = await fetchDatabase(url, {
     headers: { apikey: config.key, Authorization: `Bearer ${config.key}`, Accept: "application/json" },
     cache: "no-store",
   });
@@ -407,9 +456,12 @@ async function getSource(config: { url: string; key: string }, sourceId: SourceI
   const rows: unknown = await response.json();
   if (!Array.isArray(rows) || !isRecord(rows[0])) throw new SyncError("source_not_found");
   const source = rows[0];
-  if (source.usage_status !== "allowed") throw new SyncError("source_license_not_approved");
-  if (source.api_url !== allowedApiUrls[sourceId]) throw new SyncError("source_api_unavailable");
-  return { id: sourceId, api_url: source.api_url, dataset_url: String(source.dataset_url ?? ""), usage_status: String(source.usage_status) };
+  return {
+    id: sourceId,
+    api_url: typeof source.api_url === "string" ? source.api_url : "",
+    dataset_url: String(source.dataset_url ?? ""),
+    usage_status: String(source.usage_status ?? ""),
+  };
 }
 
 async function startSyncLog(config: { url: string; key: string }, sourceId: SourceId): Promise<number> {
@@ -417,7 +469,7 @@ async function startSyncLog(config: { url: string; key: string }, sourceId: Sour
   stale.searchParams.set("source_id", `eq.${sourceId}`);
   stale.searchParams.set("status", "eq.running");
   stale.searchParams.set("started_at", "lt." + new Date(Date.now() - 30 * 60_000).toISOString());
-  const staleResponse = await fetch(stale, {
+  const staleResponse = await fetchDatabase(stale, {
     method: "PATCH",
     headers: {
       apikey: config.key,
@@ -430,7 +482,7 @@ async function startSyncLog(config: { url: string; key: string }, sourceId: Sour
   });
   if (!staleResponse.ok) throw new SyncError("sync_log_recovery_failed");
 
-  const response = await fetch(`${config.url}/rest/v1/data_sync_logs`, {
+  const response = await fetchDatabase(`${config.url}/rest/v1/data_sync_logs`, {
     method: "POST",
     headers: {
       apikey: config.key,
@@ -463,7 +515,7 @@ async function finishSyncLog(
 ): Promise<void> {
   const url = new URL(`${config.url}/rest/v1/data_sync_logs`);
   url.searchParams.set("id", `eq.${logId}`);
-  const response = await fetch(url, {
+  const response = await fetchDatabase(url, {
     method: "PATCH",
     headers: {
       apikey: config.key,
@@ -502,7 +554,7 @@ async function upsertRows(
     url.searchParams.set("select", "external_id");
     url.searchParams.set("source_id", `eq.${sourceId}`);
     url.searchParams.set("external_id", `in.(${batch.join(",")})`);
-    const response = await fetch(url, {
+    const response = await fetchDatabase(url, {
       headers: { apikey: config.key, Authorization: `Bearer ${config.key}`, Accept: "application/json" },
       cache: "no-store",
     });
@@ -514,8 +566,12 @@ async function upsertRows(
 
   const upsertUrl = new URL(`${config.url}/rest/v1/catalog_records`);
   upsertUrl.searchParams.set("on_conflict", "source_id,external_id");
+  let inserted = 0;
+  let updated = 0;
+  const duplicates = records.length - rows.length;
   for (let offset = 0; offset < rows.length; offset += 100) {
-    const response = await fetch(upsertUrl, {
+    const batch = rows.slice(offset, offset + 100);
+    const response = await fetchDatabase(upsertUrl, {
       method: "POST",
       headers: {
         apikey: config.key,
@@ -523,17 +579,23 @@ async function upsertRows(
         "Content-Type": "application/json",
         Prefer: "resolution=merge-duplicates,return=minimal",
       },
-      body: JSON.stringify(rows.slice(offset, offset + 100)),
+      body: JSON.stringify(batch),
       cache: "no-store",
     });
-    if (!response.ok) throw new SyncError("catalog_upsert_failed");
+    if (!response.ok) throw new SyncError("catalog_upsert_failed", {
+      seen: records.length,
+      inserted,
+      updated,
+      duplicates,
+    });
+    updated += batch.filter((row) => existing.has(row.external_id)).length;
+    inserted += batch.length - batch.filter((row) => existing.has(row.external_id)).length;
   }
-  const updated = rows.filter((row) => existing.has(row.external_id)).length;
   return {
     seen: records.length,
-    inserted: rows.length - updated,
+    inserted,
     updated,
-    duplicates: records.length - rows.length,
+    duplicates,
   };
 }
 
@@ -542,7 +604,7 @@ async function expireClosedRecords(config: { url: string; key: string }, sourceI
   url.searchParams.set("source_id", `eq.${sourceId}`);
   url.searchParams.set("data_status", "eq.active");
   url.searchParams.set("expires_at", `lt.${new Date().toISOString()}`);
-  const response = await fetch(url, {
+  const response = await fetchDatabase(url, {
     method: "PATCH",
     headers: {
       apikey: config.key,
@@ -564,9 +626,12 @@ async function syncOne(
   let logId: number | null = null;
   let seen = 0;
   let invalidRecords = 0;
+  let counts: SyncCounts | undefined;
   try {
     const source = await getSource(config, sourceId);
     logId = await startSyncLog(config, sourceId);
+    if (source.usage_status !== "allowed") throw new SyncError("source_license_not_approved");
+    if (source.api_url !== allowedApiUrls[sourceId]) throw new SyncError("source_api_unavailable");
     const key = sourceId === WORK24_SOURCE_ID ? work24Key : process.env.DATA_GO_KR_API_KEY?.trim();
     if (!key) {
       throw new SyncError(sourceId === WORK24_SOURCE_ID
@@ -604,7 +669,8 @@ async function syncOne(
         break;
       }
     }
-    const counts = await upsertRows(config, sourceId, rows);
+    seen = Math.max(seen, rows.length);
+    counts = await upsertRows(config, sourceId, rows);
     await expireClosedRecords(config, sourceId);
     seen = Math.max(seen, counts.seen);
     await finishSyncLog(config, logId, "completed", seen, counts.inserted, counts.updated, counts.duplicates, invalidRecords);
@@ -617,12 +683,30 @@ async function syncOne(
         : "sync_failed";
     if (logId !== null) {
       try {
-        await finishSyncLog(config, logId, "failed", seen, 0, 0, 0, invalidRecords, code);
+        const errorCounts = (error instanceof SyncError ? error.counts : undefined) ?? counts;
+        await finishSyncLog(
+          config,
+          logId,
+          "failed",
+          errorCounts?.seen ?? seen,
+          errorCounts?.inserted ?? 0,
+          errorCounts?.updated ?? 0,
+          errorCounts?.duplicates ?? 0,
+          invalidRecords,
+          code,
+        );
       } catch {
         return { source_id: sourceId, status: "failed", error: "sync_log_update_failed" };
       }
+    } else {
+      console.error("data_sync_failed_before_log", { source_id: sourceId, error_code: code });
     }
-    return { source_id: sourceId, status: "failed", error: code };
+    return {
+      source_id: sourceId,
+      status: "failed",
+      ...((error instanceof SyncError ? error.counts : undefined) ?? counts),
+      error: code,
+    };
   }
 }
 
@@ -639,7 +723,10 @@ export async function POST(request: Request) {
   if (!hasValidSecret(request, secret)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const config = getSupabaseAdminConfig();
-  if (!config) return NextResponse.json({ error: "supabase_not_configured" }, { status: 503 });
+  if (!config) {
+    console.error("data_sync_failed", { error_code: "supabase_not_configured" });
+    return NextResponse.json({ error: "supabase_not_configured" }, { status: 503 });
+  }
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > 4096) return NextResponse.json({ error: "request_too_large" }, { status: 413 });
 
