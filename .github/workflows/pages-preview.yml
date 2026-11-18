@@ -1,7 +1,12 @@
 name: Publish static CAREERON preview
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - kmkspu31-ops-work24-api-fixes
+    paths:
+      - "github-pages-preview/**"
+      - ".github/workflows/pages-preview.yml"
 
 permissions:
   contents: read
