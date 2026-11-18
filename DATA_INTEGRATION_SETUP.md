@@ -143,3 +143,7 @@ GitHub 저장소의 **Settings → Secrets and variables → Actions → New rep
 ### GitHub Pages 제한
 
 GitHub Pages는 정적 호스팅이므로 Next.js 서버 렌더링, `/api/data-sync`, Supabase 서버 전용 키 또는 OpenAI/Work24 비밀키를 실행할 수 없습니다. GitHub Pages에서는 서버 기능이 동작하지 않으며, 전체 CAREERON 서비스를 공개하려면 Next.js 서버를 지원하는 호스팅에 배포해야 합니다. 정적 프리뷰를 Pages에 배포하더라도 API/DB 기능을 사용할 수 있다고 표시하면 안 됩니다.
+
+### Vercel 배포
+
+Vercel에서 이 GitHub 저장소를 새 Next.js 프로젝트로 연결하면 별도 정적 내보내기 설정 없이 서버 기능을 배포할 수 있습니다. **Project Settings → Environment Variables**에 필요한 값만 서버 환경변수로 등록하고 Preview/Production 범위를 구분하세요. 이 저장소에서 사용하는 이름은 `OPENAI_API_KEY`, `OPENAI_MODEL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `WORK24_API_KEY`, `DATA_GO_KR_API_KEY`, `DATA_SYNC_SECRET`입니다. 실제 자격 증명은 `NEXT_PUBLIC_` 접두사를 붙이지 말고, 채팅/코드/GitHub 변수에 입력하지 마세요. Vercel 계정 연결 및 배포는 이 세션에서 수행하지 않았습니다.

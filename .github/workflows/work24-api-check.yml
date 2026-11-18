@@ -1,9 +1,6 @@
 name: Work24 API connection check
 
 on:
-  push:
-    branches:
-      - kmkspu31-ops-work24-api-sync
   workflow_dispatch:
 
 permissions:
