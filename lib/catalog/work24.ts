@@ -2,6 +2,7 @@ import "server-only";
 
 import { XMLParser } from "fast-xml-parser";
 import { getSupabaseAdminConfig, type SupabaseAdminConfig } from "@/lib/catalog/server";
+import { fetchWithRetry } from "@/lib/catalog/fetch-with-retry";
 import type { CatalogRecord } from "@/lib/catalog/types";
 
 export const WORK24_SOURCE_ID = "work24-job-postings";
@@ -206,13 +207,26 @@ export async function fetchWork24Jobs(
     if (value) url.searchParams.set(name, value);
   }
 
-  const response = await fetch(url, {
-    headers: { Accept: "application/xml, text/xml" },
-    cache: "no-store",
-    redirect: "error",
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) throw new Error(`work24_http_${response.status}`);
+  let response: Response;
+  try {
+    response = await fetchWithRetry(url, {
+      headers: { Accept: "application/xml, text/xml" },
+      cache: "no-store",
+      redirect: "error",
+    });
+  } catch (error) {
+    throw new Error(error instanceof Error && error.name === "TimeoutError"
+      ? "work24_timeout"
+      : "work24_network_error");
+  }
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) throw new Error("work24_auth_failed");
+    if (response.status === 404) throw new Error("work24_service_not_available");
+    if (response.status === 400) throw new Error("work24_invalid_parameters");
+    if (response.status === 429) throw new Error("work24_rate_limited");
+    if (response.status >= 500) throw new Error("work24_provider_unavailable");
+    throw new Error(`work24_http_${response.status}`);
+  }
   const raw = await response.text();
   if (raw.length > 10 * 1024 * 1024) throw new Error("work24_response_too_large");
   const payload: unknown = parser.parse(raw.replace(/^\uFEFF/, ""));
@@ -269,11 +283,10 @@ export async function enrichWork24Job(record: CatalogRecord): Promise<Work24Deta
     url.searchParams.set("callTp", "D");
     url.searchParams.set("returnType", "XML");
     url.searchParams.set("wantedAuthNo", record.external_id);
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       headers: { Accept: "application/xml, text/xml" },
       cache: "no-store",
       redirect: "error",
-      signal: AbortSignal.timeout(20_000),
     });
     if (!response.ok) return { status: "unavailable" };
     const raw = await response.text();
