@@ -89,7 +89,10 @@ jobs:
               sys.exit(1)
           total = values.get("total")
           if total is None:
-              print("List API response did not contain a total field.")
+              tag_names = sorted({element.tag.rsplit("}", 1)[-1] for element in root.iter()})
+              print(f"List API response shape was unexpected; root={root.tag.rsplit('}', 1)[-1]}; tags={','.join(tag_names[:25])}")
+              if error_code:
+                  print(f"Provider response code: {error_code}")
               sys.exit(1)
           records = [
               element for element in root.iter()
