@@ -1,9 +1,11 @@
 import "server-only";
 
 import { createHmac } from "node:crypto";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 type UsageReservation = {
   subjectHash: string;
+  userId: string | null;
   store: "supabase" | "memory";
 };
 
@@ -11,51 +13,32 @@ export type UsageResult =
   | { ok: true; reservation: UsageReservation }
   | { ok: false; status: number; message: string };
 
-type DailyUsage = { date: string; count: number };
+type DailyUsage = { date: string; count: number; lastRequestedAt?: number };
 const localUsage = new Map<string, DailyUsage>();
+
+function getMinimumIntervalSeconds(): number {
+  const value = Number(process.env.AI_MIN_REQUEST_INTERVAL_SECONDS);
+  return Number.isSafeInteger(value) && value >= 1 ? value : 3;
+}
 
 function getDailyLimit(): number | null {
   const value = Number(process.env.AI_DAILY_REQUEST_LIMIT);
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
-function getSubjectHash(request: Request): string | null {
-  const secret =
-    process.env.AI_RATE_LIMIT_SECRET?.trim() ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.OPENAI_API_KEY?.trim();
-  if (!secret) return null;
+function getSubjectHash(request: Request, userId: string | null): string | null {
+  const secret = process.env.AI_RATE_LIMIT_SECRET?.trim();
+  if (!secret || secret.length < 32) return null;
 
-  const forwardedAddress =
-    request.headers.get("x-real-ip")?.trim() ||
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    "local";
-  return createHmac("sha256", secret).update(forwardedAddress).digest("hex");
+  const subject = userId
+    ? `user:${userId}`
+    : `ip:${request.headers.get("x-real-ip")?.trim() || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local"}`;
+  return createHmac("sha256", secret).update(subject).digest("hex");
 }
 
-async function callSupabaseRpc(
-  name: string,
-  body: Record<string, string | number>,
-): Promise<Response | null> {
-  const url = process.env.SUPABASE_URL?.trim() || process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  if (!url || !serviceKey) return null;
-
-  return fetch(`${url.replace(/\/$/, "")}/rest/v1/rpc/${name}`, {
-    method: "POST",
-    headers: {
-      apikey: serviceKey,
-      Authorization: `Bearer ${serviceKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
-}
-
-export async function reserveAiRequest(request: Request): Promise<UsageResult> {
+export async function reserveAiRequest(request: Request, userId: string | null): Promise<UsageResult> {
   const dailyLimit = getDailyLimit();
-  const subjectHash = getSubjectHash(request);
+  const subjectHash = getSubjectHash(request, userId);
   if (!dailyLimit || !subjectHash) {
     return {
       ok: false,
@@ -64,15 +47,14 @@ export async function reserveAiRequest(request: Request): Promise<UsageResult> {
     };
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL?.trim() || process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-
-  if (supabaseUrl && serviceKey) {
-    let response: Response | null;
+  const admin = createSupabaseAdminClient();
+  if (admin) {
+    let result: { data: number | null; error: unknown };
     try {
-      response = await callSupabaseRpc("reserve_ai_daily_request", {
+      result = await admin.rpc("reserve_ai_daily_request", {
         p_subject_hash: subjectHash,
         p_daily_limit: dailyLimit,
+        p_min_interval_seconds: getMinimumIntervalSeconds(),
       });
     } catch {
       return {
@@ -82,29 +64,28 @@ export async function reserveAiRequest(request: Request): Promise<UsageResult> {
       };
     }
 
-    if (!response?.ok) {
+    if (result.error || typeof result.data !== "number") {
       return {
         ok: false,
         status: 503,
         message: "사용량 확인을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.",
       };
     }
-    const requestCount: unknown = await response.json().catch(() => null);
-    if (typeof requestCount !== "number") {
+    if (result.data === -1) {
       return {
         ok: false,
-        status: 503,
-        message: "사용량 확인 응답을 처리할 수 없습니다. 관리자에게 문의해 주세요.",
+        status: 429,
+        message: "요청 간격이 너무 짧습니다. 잠시 후 다시 시도해 주세요.",
       };
     }
-    if (requestCount === 0) {
+    if (result.data === 0) {
       return {
         ok: false,
         status: 429,
         message: "오늘의 AI 상담 이용 한도에 도달했습니다. 내일 다시 이용해 주세요.",
       };
     }
-    return { ok: true, reservation: { subjectHash, store: "supabase" } };
+    return { ok: true, reservation: { subjectHash, userId, store: "supabase" } };
   }
 
   if (process.env.NODE_ENV === "production") {
@@ -117,6 +98,10 @@ export async function reserveAiRequest(request: Request): Promise<UsageResult> {
 
   const today = new Date().toISOString().slice(0, 10);
   const current = localUsage.get(subjectHash);
+  const now = Date.now();
+  if (current?.date === today && now - (current.lastRequestedAt ?? 0) < getMinimumIntervalSeconds() * 1_000) {
+    return { ok: false, status: 429, message: "요청 간격이 너무 짧습니다. 잠시 후 다시 시도해 주세요." };
+  }
   if (current?.date === today && current.count >= dailyLimit) {
     return {
       ok: false,
@@ -127,8 +112,9 @@ export async function reserveAiRequest(request: Request): Promise<UsageResult> {
   localUsage.set(subjectHash, {
     date: today,
     count: current?.date === today ? current.count + 1 : 1,
+    lastRequestedAt: now,
   });
-  return { ok: true, reservation: { subjectHash, store: "memory" } };
+  return { ok: true, reservation: { subjectHash, userId, store: "memory" } };
 }
 
 export async function recordAiUsage(
@@ -136,14 +122,19 @@ export async function recordAiUsage(
   model: string,
   inputTokens: number,
   outputTokens: number,
+  status: "completed" | "failed",
 ): Promise<void> {
   if (reservation.store === "memory") return;
 
-  const response = await callSupabaseRpc("record_ai_usage", {
+  const admin = createSupabaseAdminClient();
+  if (!admin) throw new Error("Supabase usage storage is not configured.");
+  const { error } = await admin.rpc("record_ai_usage", {
     p_subject_hash: reservation.subjectHash,
     p_model: model,
     p_input_tokens: Math.max(0, inputTokens),
     p_output_tokens: Math.max(0, outputTokens),
+    p_user_id: reservation.userId,
+    p_status: status,
   });
-  if (!response?.ok) throw new Error("Usage recording failed.");
+  if (error) throw new Error("Usage recording failed.");
 }

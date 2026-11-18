@@ -52,6 +52,7 @@ const suggestedQuestions = [
 type ServerEvent =
   | { type: "meta"; mode: AiExpertMode }
   | { type: "delta"; text: string }
+  | { type: "saving" }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -60,7 +61,7 @@ function isServerEvent(value: unknown): value is ServerEvent {
   const event = value as Record<string, unknown>;
   if (event.type === "delta") return typeof event.text === "string";
   if (event.type === "error") return typeof event.message === "string";
-  if (event.type === "done") return true;
+  if (event.type === "done" || event.type === "saving") return true;
   return event.type === "meta" && typeof event.mode === "string" && event.mode in expertModeLabels;
 }
 
@@ -83,6 +84,7 @@ function isStoredConversation(value: unknown): value is AiConversation {
       typeof message.id === "string" &&
       (message.role === "user" || message.role === "assistant") &&
       typeof message.content === "string" &&
+      (message.status === undefined || message.status === "streaming" || message.status === "completed" || message.status === "failed") &&
       (message.mode === undefined || (typeof message.mode === "string" && message.mode in expertModeLabels))
     );
   });
@@ -106,12 +108,16 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
   const [draft, setDraft] = useState("");
   const [historySearch, setHistorySearch] = useState("");
   const [busy, setBusy] = useState(false);
+  const [requestStatus, setRequestStatus] = useState<"idle" | "waiting" | "streaming" | "saving" | "saved" | "failed">("idle");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saveHistory, setSaveHistory] = useState(false);
   const [storageReady, setStorageReady] = useState(false);
+  const [authStatus, setAuthStatus] = useState<"loading" | "guest" | "member" | "unavailable">("loading");
+  const [guestConversations, setGuestConversations] = useState<AiConversation[]>([]);
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const activeConversation = conversations.find((conversation) => conversation.id === activeId);
 
   const filteredConversations = useMemo(() => {
@@ -124,7 +130,13 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
     );
   }, [conversations, historySearch]);
 
+  const activeMessages = activeConversation?.messages ?? [];
   useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: busy ? "auto" : "smooth", block: "end" });
+  }, [activeMessages, busy]);
+
+  useEffect(() => {
+    let localConversations: AiConversation[] = [];
     try {
       const optedIn = localStorage.getItem(consentKey) === "true";
       setSaveHistory(optedIn);
@@ -132,41 +144,69 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
         const saved = localStorage.getItem(historyKey);
         if (saved) {
           const parsed: unknown = JSON.parse(saved);
-          if (Array.isArray(parsed)) setConversations(parsed.filter(isStoredConversation));
+          if (Array.isArray(parsed)) localConversations = parsed.filter(isStoredConversation);
         }
       }
+      setGuestConversations(localConversations);
+      setConversations(localConversations);
     } catch {
       setNotice("이 브라우저에서 대화 저장 상태를 확인하지 못했습니다. 저장 설정을 다시 확인해 주세요.");
     } finally {
       setStorageReady(true);
     }
+
+    void fetch("/api/ai/conversations", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("대화 목록을 불러오지 못했습니다.");
+        const payload: unknown = await response.json();
+        if (!payload || typeof payload !== "object" || !("authenticated" in payload) || !("conversations" in payload)) {
+          throw new Error("대화 목록 응답을 처리하지 못했습니다.");
+        }
+        const result = payload as { authenticated: unknown; conversations: unknown };
+        if (result.authenticated === true && Array.isArray(result.conversations)) {
+          setAuthStatus("member");
+          setConversations(result.conversations.filter(isStoredConversation));
+          if (localConversations.length) setNotice("이 기기의 비회원 대화는 자동으로 계정에 올리지 않았습니다. 대화 기록에서 직접 가져오기를 선택할 수 있습니다.");
+        } else {
+          setAuthStatus("guest");
+        }
+      })
+      .catch(() => {
+        setAuthStatus("unavailable");
+        setNotice("서버 대화 기록을 확인하지 못했습니다. 기존 브라우저 대화는 이 기기에 유지됩니다.");
+      });
   }, []);
 
   useEffect(() => {
-    if (!storageReady) return;
+    if (!storageReady || authStatus === "loading" || authStatus === "unavailable") return;
     try {
       localStorage.setItem(consentKey, String(saveHistory));
-      if (saveHistory) localStorage.setItem(historyKey, JSON.stringify(conversations));
+      if (saveHistory) localStorage.setItem(historyKey, JSON.stringify(guestConversations));
       else localStorage.removeItem(historyKey);
     } catch {
       setNotice("브라우저 저장 공간에 대화를 저장하지 못했습니다.");
     }
-  }, [conversations, saveHistory, storageReady]);
+  }, [authStatus, guestConversations, saveHistory, storageReady]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
   function updateConversation(id: string, update: (conversation: AiConversation) => AiConversation) {
     setConversations((current) => current.map((conversation) => conversation.id === id ? update(conversation) : conversation));
+    if (authStatus !== "member") {
+      setGuestConversations((current) => current.map((conversation) => conversation.id === id ? update(conversation) : conversation));
+    }
   }
 
   function startNewConversation() {
     if (busy) return;
     const conversation = newConversation(initialModeSelection);
     setConversations((current) => [conversation, ...current]);
+    if (authStatus !== "member") setGuestConversations((current) => [conversation, ...current]);
     setActiveId(conversation.id);
     setMode(initialModeSelection);
     setError("");
     setNotice("");
+    setRequestStatus("idle");
     setDraft("");
     setMobileHistoryOpen(false);
   }
@@ -175,6 +215,10 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
     if (busy) return;
     setActiveId(conversation.id);
     setMode(conversation.mode);
+    const lastMessage = conversation.messages[conversation.messages.length - 1];
+    setRequestStatus(lastMessage?.role === "assistant" && lastMessage.status === "failed"
+      ? "failed"
+      : lastMessage?.role === "assistant" ? "saved" : "idle");
     setError("");
     setMobileHistoryOpen(false);
   }
@@ -196,6 +240,8 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
 
     const conversation = current ?? newConversation(mode);
     const assistantId = crypto.randomUUID();
+    const userMessageId = regenerate ? current?.messages[lastUserIndex]?.id : crypto.randomUUID();
+    const requestId = crypto.randomUUID();
     let history = conversation.messages;
     let nextMessages: AiMessage[];
 
@@ -204,13 +250,13 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
       history = history.slice(0, lastUserIndex);
       nextMessages = [
         ...conversation.messages.slice(0, lastUserIndex + 1),
-        { id: assistantId, role: "assistant", content: "" },
+        { id: assistantId, role: "assistant", content: "", status: "streaming" },
       ];
     } else {
       nextMessages = [
         ...history,
-        { id: crypto.randomUUID(), role: "user", content },
-        { id: assistantId, role: "assistant", content: "" },
+        { id: userMessageId ?? crypto.randomUUID(), role: "user", content, status: "completed" },
+        { id: assistantId, role: "assistant", content: "", status: "streaming" },
       ];
     }
 
@@ -230,11 +276,18 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
       updatedConversation,
       ...currentConversations.filter((item) => item.id !== conversationId),
     ]);
+    if (authStatus !== "member") {
+      setGuestConversations((currentConversations) => [
+        updatedConversation,
+        ...currentConversations.filter((item) => item.id !== conversationId),
+      ]);
+    }
     setActiveId(conversationId);
     setDraft("");
     setError("");
     setNotice("");
     setBusy(true);
+    setRequestStatus("waiting");
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -246,6 +299,11 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
         body: JSON.stringify({
           mode: selectedMode,
           message: content,
+          conversationId,
+          requestId,
+          userMessageId,
+          assistantMessageId: assistantId,
+          regenerate,
           history: history.slice(-20).reverse().reduce<Array<{ role: "user" | "assistant"; content: string }>>((recent, message) => {
             const previousLength = recent.reduce((total, item) => total + item.content.length, 0);
             if (previousLength + message.content.length > 24_000) return recent;
@@ -265,6 +323,7 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
       }
       if (!response.body) throw new Error("AI 스트리밍 응답을 읽을 수 없습니다.");
 
+      setRequestStatus("streaming");
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -280,7 +339,7 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
           updateConversation(conversationId, (item) => ({
             ...item,
             messages: item.messages.map((message) =>
-              message.id === assistantId ? { ...message, content: message.content + eventValue.text } : message,
+              message.id === assistantId ? { ...message, content: message.content + eventValue.text, status: "streaming" } : message,
             ),
           }));
         } else if (eventValue.type === "meta") {
@@ -292,8 +351,20 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
           }));
         } else if (eventValue.type === "error") {
           streamError = eventValue.message;
+          setRequestStatus("failed");
+          updateConversation(conversationId, (item) => ({
+            ...item,
+            messages: item.messages.map((message) => message.id === assistantId ? { ...message, status: "failed" } : message),
+          }));
+        } else if (eventValue.type === "saving") {
+          setRequestStatus("saving");
         } else if (eventValue.type === "done") {
           finished = true;
+          setRequestStatus("saved");
+          updateConversation(conversationId, (item) => ({
+            ...item,
+            messages: item.messages.map((message) => message.id === assistantId ? { ...message, status: "completed" } : message),
+          }));
         }
       }
 
@@ -313,11 +384,21 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
       if (streamError) throw new Error(streamError);
       if (!finished) throw new Error("AI 응답 연결이 예기치 않게 종료됐습니다. 다시 시도해 주세요.");
     } catch (requestError) {
-      if (requestError instanceof Error && requestError.name === "AbortError") return;
+      if (requestError instanceof Error && requestError.name === "AbortError") {
+        setRequestStatus("failed");
+        updateConversation(conversationId, (item) => ({
+          ...item,
+          messages: item.messages.map((message) => message.id === assistantId ? { ...message, status: "failed" } : message),
+        }));
+        return;
+      }
+      setRequestStatus("failed");
       setError(requestError instanceof Error ? requestError.message : "AI 요청 중 오류가 발생했습니다.");
       updateConversation(conversationId, (item) => ({
         ...item,
-        messages: item.messages.filter((message) => message.id !== assistantId || message.content.length > 0),
+        messages: item.messages
+          .filter((message) => message.id !== assistantId || message.content.length > 0)
+          .map((message) => message.id === assistantId ? { ...message, status: "failed" } : message),
       }));
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
@@ -339,18 +420,90 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
     }
   }
 
-  function renameConversation(conversation: AiConversation) {
+  async function renameConversation(conversation: AiConversation) {
+    if (authStatus === "unavailable") {
+      setNotice("대화 저장 연결을 확인할 수 없어 제목을 변경하지 않았습니다.");
+      return;
+    }
     const title = window.prompt("대화 제목을 입력하세요.", conversation.title)?.trim();
     if (!title) return;
+    if (authStatus === "member") {
+      try {
+        const response = await fetch("/api/ai/conversations", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: conversation.id, title: title.slice(0, 80) }),
+        });
+        if (!response.ok) {
+          setNotice("대화 제목을 서버에 저장하지 못했습니다.");
+          return;
+        }
+      } catch {
+        setNotice("대화 제목을 서버에 저장하지 못했습니다.");
+        return;
+      }
+    }
     updateConversation(conversation.id, (item) => ({ ...item, title: title.slice(0, 80), updatedAt: Date.now() }));
   }
 
   function deleteConversation(conversation: AiConversation) {
+    if (authStatus === "unavailable") {
+      setNotice("대화 저장 연결을 확인할 수 없어 삭제하지 않았습니다.");
+      return;
+    }
     if (!window.confirm(`"${conversation.title}" 대화를 삭제할까요?`)) return;
-    setConversations((current) => current.filter((item) => item.id !== conversation.id));
-    if (activeId === conversation.id) {
-      setActiveId(null);
-      setMode(initialModeSelection);
+    const remove = () => {
+      setConversations((current) => current.filter((item) => item.id !== conversation.id));
+      setGuestConversations((current) => current.filter((item) => item.id !== conversation.id));
+      if (activeId === conversation.id) {
+        setActiveId(null);
+        setMode(initialModeSelection);
+      }
+    };
+    if (authStatus !== "member") {
+      remove();
+      return;
+    }
+    void fetch("/api/ai/conversations", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: conversation.id }),
+    }).then((response) => {
+      if (response.ok) remove();
+      else setNotice("대화를 서버에서 삭제하지 못했습니다.");
+    }).catch(() => setNotice("대화를 서버에서 삭제하지 못했습니다."));
+  }
+
+  async function importGuestConversations() {
+    if (authStatus !== "member" || guestConversations.length === 0) return;
+    if (!window.confirm("이 기기에 저장된 대화를 계정으로 가져올까요? 가져온 뒤에도 기기 내 기록은 유지됩니다.")) return;
+    try {
+      const response = await fetch("/api/ai/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversations: guestConversations }),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message = payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
+          ? payload.error
+          : "대화를 가져오지 못했습니다.";
+        setNotice(message);
+        return;
+      }
+      if (payload && typeof payload === "object" && "conversations" in payload && Array.isArray(payload.conversations)) {
+        const imported = payload.conversations.filter(isStoredConversation);
+        setConversations((current) => [
+          ...imported.filter((item) => !current.some((existing) => existing.id === item.id)),
+          ...current,
+        ]);
+      }
+      const importedCount = payload && typeof payload === "object" && "conversations" in payload && Array.isArray(payload.conversations)
+        ? payload.conversations.length
+        : 0;
+      setNotice(importedCount ? `${importedCount}개 대화를 계정에 가져왔습니다.` : "가져올 새 대화가 없습니다. 이미 계정에 있는 기록일 수 있습니다.");
+    } catch {
+      setNotice("대화를 가져오지 못했습니다. 연결 상태를 확인해 주세요.");
     }
   }
 
@@ -363,6 +516,11 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
             <Plus size={14} /> 새 대화
           </button>
         </div>
+        {authStatus === "member" && guestConversations.length > 0 && (
+          <button type="button" onClick={() => void importGuestConversations()} className="mt-2 rounded-lg border border-blue-200 px-3 py-2 text-left text-xs font-medium text-blue-700 hover:bg-blue-50 dark:border-blue-500/30 dark:text-blue-300 dark:hover:bg-blue-500/10">
+            이 기기 대화 {guestConversations.length}개 가져오기
+          </button>
+        )}
         <label className="mt-3 flex h-9 items-center gap-2 rounded-lg border border-[var(--border)] px-2.5 text-muted">
           <Search size={14} />
           <input value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} aria-label="대화 검색" placeholder="대화 검색" className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted" />
@@ -373,20 +531,21 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
               <button type="button" disabled={busy} onClick={() => selectConversation(conversation)} className="min-w-0 flex-1 truncate px-3 py-2 text-left text-xs disabled:opacity-50">
                 {conversation.title}
               </button>
-              <button type="button" disabled={busy} onClick={() => renameConversation(conversation)} aria-label={`${conversation.title} 이름 변경`} className="hidden p-1.5 text-muted hover:text-blue-600 group-hover:inline-flex">⋯</button>
+              <button type="button" disabled={busy} onClick={() => void renameConversation(conversation)} aria-label={`${conversation.title} 이름 변경`} className="hidden p-1.5 text-muted hover:text-blue-600 group-hover:inline-flex">⋯</button>
               <button type="button" disabled={busy} onClick={() => deleteConversation(conversation)} aria-label={`${conversation.title} 삭제`} className="hidden p-1.5 pr-2 text-muted hover:text-red-600 group-hover:inline-flex"><Trash2 size={13} /></button>
             </div>
           ))}
           {filteredConversations.length === 0 && <p className="px-2 py-4 text-xs text-muted">{conversations.length ? "검색 결과가 없습니다." : "아직 대화가 없습니다."}</p>}
         </div>
         <label className="mt-3 flex items-start gap-2 border-t border-[var(--border)] pt-3 text-[11px] leading-5 text-muted">
-          <input type="checkbox" checked={saveHistory} onChange={(event) => {
+          <input type="checkbox" checked={saveHistory} disabled={authStatus === "unavailable"} onChange={(event) => {
             setSaveHistory(event.target.checked);
+            if (!event.target.checked) setGuestConversations([]);
             setNotice(event.target.checked
               ? "이 기기에 대화 저장을 켰습니다."
               : "이 기기에 저장된 CAREERON AI 대화를 삭제했습니다.");
           }} className="mt-1 accent-blue-600" />
-          <span>이 기기에 대화 저장<br />끄면 저장된 대화도 삭제됩니다.</span>
+          <span>{authStatus === "unavailable" ? "대화 저장 연결 확인 불가" : authStatus === "member" ? "비회원 기록 보관" : "이 기기에 대화 저장"}<br />끄면 기기에 저장된 비회원 기록도 삭제됩니다.</span>
         </label>
       </>
     );
@@ -419,7 +578,13 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"><Bot size={19} /></span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-bold">{activeConversation?.title ?? "CAREERON AI"}</p>
-            <p className="text-[11px] text-muted">{currentModeLabel} · {busy ? "답변 작성 중" : "AI 연결 상태는 요청 시 확인"}</p>
+            <p className="text-[11px] text-muted">{currentModeLabel} · {busy
+              ? requestStatus === "waiting" ? "AI 응답 대기" : requestStatus === "saving" ? "대화 저장 중" : "답변 스트리밍 중"
+              : requestStatus === "saved" ? authStatus === "member" ? "답변 완료 · 대화 저장 완료" : "답변 완료"
+                : requestStatus === "failed" ? "답변 실패" : authStatus === "member" ? "회원 대화는 서버에 저장"
+                  : authStatus === "unavailable" ? "대화 저장 연결 확인 불가"
+                    : authStatus === "loading" ? "대화 저장 상태 확인 중" : "비회원 대화는 저장 동의 시 브라우저에 저장"}</p>
+            {authStatus === "guest" && <a href="/login" className="text-[10px] font-medium text-blue-700 hover:underline dark:text-blue-300">로그인하면 회원 대화를 동기화할 수 있습니다</a>}
           </div>
           <button type="button" onClick={startNewConversation} disabled={busy} aria-label="새 대화" className="rounded-lg p-2 text-muted hover:bg-[var(--surface-subtle)] disabled:opacity-50"><Plus size={18} /></button>
         </header>
@@ -463,6 +628,7 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
               <div className={`max-w-[88%] min-w-0 rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === "assistant" ? "bg-[var(--surface-subtle)]" : "bg-blue-600 text-white"}`}>
                 {message.role === "assistant" && message.mode && <p className="mb-1 text-[10px] font-semibold text-blue-700 dark:text-blue-300">{expertModeLabels[message.mode]}</p>}
                 <p className="whitespace-pre-wrap break-words">{message.content || (busy && index === messages.length - 1 ? "답변을 작성하고 있어요…" : "")}</p>
+                {message.status === "failed" && <p className="mt-2 text-[11px] text-red-600 dark:text-red-300">응답을 완료하지 못했습니다. 다시 생성해 주세요.</p>}
                 {message.role === "assistant" && message.content && index === messages.length - 1 && !busy && (
                   <div className="mt-2 flex gap-2 border-t border-[var(--border)] pt-2">
                     <button type="button" onClick={() => void copyMessage(message.content)} aria-label="답변 복사" className="inline-flex items-center gap-1 text-[11px] text-muted hover:text-blue-600"><Copy size={12} /> 복사</button>
@@ -472,6 +638,7 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
               </div>
             </article>
           ))}
+          <div ref={messagesEndRef} />
         </div>
 
         {(error || notice) && (
@@ -481,7 +648,7 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
           </p>
         )}
 
-        <form onSubmit={submit} className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] p-3 sm:px-4">
+        <form onSubmit={submit} className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-4 lg:pb-3">
           <div className="flex items-end gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2 focus-within:border-blue-500">
             <textarea
               value={draft}
@@ -499,12 +666,12 @@ export function AssistantPanel({ mode: initialMode }: { mode: "career" | "employ
               placeholder="궁금한 내용을 입력해보세요"
               className="max-h-28 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-muted disabled:opacity-60"
             />
-            <button type="submit" disabled={!draft.trim() || busy} aria-label="메시지 전송" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">
-              <ArrowUp size={18} />
-            </button>
+            {busy
+              ? <button type="button" onClick={() => abortRef.current?.abort()} aria-label="응답 중지" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white transition hover:bg-red-700"><X size={17} /></button>
+              : <button type="submit" disabled={!draft.trim()} aria-label="메시지 전송" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"><ArrowUp size={18} /></button>}
           </div>
           <p className="mt-2 text-center text-[10px] leading-4 text-muted">
-            질문과 대화 맥락은 답변 생성을 위해 OpenAI로 전송됩니다. 대화는 CAREERON 서버에 저장되지 않으며, 저장을 켜면 이 브라우저에만 보관됩니다. AI 답변은 참고용이며 최신 공식 자료 검색은 아직 연결되지 않았습니다.
+            질문과 대화 맥락은 답변 생성을 위해 OpenAI로 전송됩니다. 회원 대화는 계정 서버에, 비회원 대화는 저장 동의 시 이 브라우저에만 보관됩니다. AI 답변은 참고용이며 최신 공식 자료 검색은 연결되지 않았습니다.
           </p>
         </form>
       </section>

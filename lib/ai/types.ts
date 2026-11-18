@@ -16,6 +16,7 @@ export type AiMessage = {
   role: "user" | "assistant";
   content: string;
   mode?: AiExpertMode;
+  status?: "streaming" | "completed" | "failed";
 };
 
 export type AiConversation = {
