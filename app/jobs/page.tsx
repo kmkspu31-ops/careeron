@@ -13,7 +13,7 @@ export default async function JobsPage({ searchParams }: { searchParams: SearchP
 
   return (
     <div className="content-width">
-      <PageHeading eyebrow="JOB BOARD" title="전국의 공공 채용을 찾아보세요" description="공식 출처에서 수집·확인한 공고만 표시합니다. 현재는 나라일터 공공 채용과 이용 권한이 확인된 데이터 연동을 지원합니다." />
+      <PageHeading eyebrow="JOB BOARD" title="전국 채용공고를 찾아보세요" description="공식 출처에서 수집한 공고만 표시합니다. 고용24 데이터는 API 승인, 이용 조건 확인 및 초기 동기화 후 검색할 수 있습니다." />
       <CatalogBrowser type="job" page={page} filters={filters} />
     </div>
   );

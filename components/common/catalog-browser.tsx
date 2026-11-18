@@ -50,6 +50,12 @@ function pageHref(page: number, filters: CatalogFilters): string {
   if (filters.kind) params.set("kind", filters.kind);
   if (filters.category) params.set("category", filters.category);
   if (filters.region) params.set("region", filters.region);
+  if (filters.education) params.set("education", filters.education);
+  if (filters.career) params.set("career", filters.career);
+  if (filters.occupation) params.set("occupation", filters.occupation);
+  if (filters.minPay) params.set("minPay", String(filters.minPay));
+  if (filters.maxPay) params.set("maxPay", String(filters.maxPay));
+  if (filters.certLic) params.set("certLic", filters.certLic);
   params.set("page", String(page));
   return `?${params.toString()}`;
 }
@@ -106,7 +112,7 @@ export function CatalogBrowser({
 
   return (
     <section     aria-label={`${label} 검색 결과`}>
-      <form method="get" className="app-surface grid gap-3 rounded-2xl p-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_auto]">
+      <form method="get" className="app-surface grid gap-3 rounded-2xl p-4 sm:grid-cols-2 lg:grid-cols-4">
         <label className="flex flex-col gap-1 text-xs font-semibold text-muted">
           검색어
           <input name="q" defaultValue={filters.q} maxLength={100} placeholder={`${label} 검색`} className="h-10 rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] outline-none focus:border-blue-500" />
@@ -138,6 +144,41 @@ export function CatalogBrowser({
             </select>
           ) : <input name="region" defaultValue={filters.region} maxLength={80} placeholder="지역" className="h-10 rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] outline-none focus:border-blue-500" />}
         </label>
+        {type === "job" && (
+          <>
+            <label className="flex flex-col gap-1 text-xs font-semibold text-muted">
+              학력
+              <select name="education" defaultValue={filters.education ?? ""} className="h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--foreground)]">
+                <option value="">전체 학력</option>
+                <option value="03">고졸 이상</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-semibold text-muted">
+              경력
+              <select name="career" defaultValue={filters.career ?? ""} className="h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--foreground)]">
+                <option value="">전체 경력</option>
+                <option value="N">신입</option>
+                <option value="Z">경력 무관</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-semibold text-muted">
+              직종 코드
+              <input name="occupation" defaultValue={filters.occupation} maxLength={20} placeholder="고용24 직종 코드" className="h-10 rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] outline-none focus:border-blue-500" />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-semibold text-muted">
+              최소 급여
+              <input name="minPay" type="number" min="1" max="1000000000" defaultValue={filters.minPay} placeholder="원" className="h-10 rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] outline-none focus:border-blue-500" />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-semibold text-muted">
+              최대 급여
+              <input name="maxPay" type="number" min="1" max="1000000000" defaultValue={filters.maxPay} placeholder="원" className="h-10 rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] outline-none focus:border-blue-500" />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-semibold text-muted">
+              자격 조건
+              <input name="certLic" defaultValue={filters.certLic} maxLength={80} placeholder="자격증/면허" className="h-10 rounded-lg border border-[var(--border)] bg-transparent px-3 text-sm text-[var(--foreground)] outline-none focus:border-blue-500" />
+            </label>
+          </>
+        )}
         <button type="submit" className="h-10 self-end rounded-lg bg-blue-600 px-5 text-sm font-semibold text-white hover:bg-blue-700">검색</button>
       </form>
 

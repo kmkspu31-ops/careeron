@@ -44,6 +44,12 @@ export type CatalogFilters = {
   kind?: CatalogType;
   category?: string;
   region?: string;
+  education?: string;
+  career?: string;
+  occupation?: string;
+  minPay?: number;
+  maxPay?: number;
+  certLic?: string;
   page?: number;
 };
 

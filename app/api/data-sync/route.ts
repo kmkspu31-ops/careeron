@@ -4,6 +4,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { XMLParser } from "fast-xml-parser";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminConfig } from "@/lib/catalog/server";
+import { fetchWork24Jobs, WORK24_LIST_URL, WORK24_SOURCE_ID, type Work24SyncRecord } from "@/lib/catalog/work24";
 import type { CatalogType } from "@/lib/catalog/types";
 
 export const runtime = "nodejs";
@@ -20,12 +21,14 @@ const sourceIds = [
   "qnet-national-qualification-schedules",
   "qnet-ncs-competency-units",
   "esaeil-training-courses",
+  WORK24_SOURCE_ID,
 ] as const;
 const allowedApiUrls: Record<SourceId, string> = {
   "narailter-public-jobs": "https://apis.data.go.kr/1760000/PblJobService",
   "qnet-national-qualification-schedules": "https://apis.data.go.kr/B490007/qualExamSchd",
   "qnet-ncs-competency-units": "https://c.q-net.or.kr/openapi/Ncs1info/ncsinfo.do",
   "esaeil-training-courses": "https://apis.data.go.kr/1383000/nwis/workTrainningEducationCourseService",
+  [WORK24_SOURCE_ID]: WORK24_LIST_URL,
 };
 type SourceId = (typeof sourceIds)[number];
 type DataStatus = "active" | "expired" | "unknown";
@@ -49,8 +52,11 @@ type SourceInfo = { id: SourceId; api_url: string; dataset_url: string; usage_st
 type SyncResult = {
   source_id: string;
   status: "completed" | "failed";
+  seen?: number;
   inserted?: number;
   updated?: number;
+  duplicates?: number;
+  failed_records?: number;
   error?: string;
 };
 
@@ -370,6 +376,25 @@ async function syncEsaeilCourses(source: SourceInfo, key: string): Promise<Catal
   });
 }
 
+function work24Rows(source: SourceInfo, records: Work24SyncRecord[]): CatalogUpsert[] {
+  return records.map((record) => ({
+    ...baseRow(
+      source.id,
+      "job",
+      { wantedAuthNo: record.externalId },
+      record.externalId,
+      record.title,
+      [record.company, record.region].filter(Boolean).join(" · "),
+      getString(record.fields.industry),
+      record.fields,
+      record.closeAt,
+      record.sourceUrl,
+      record.region || null,
+    ),
+    external_id: record.externalId,
+  }));
+}
+
 async function getSource(config: { url: string; key: string }, sourceId: SourceId): Promise<SourceInfo> {
   const url = new URL(`${config.url}/rest/v1/data_sources`);
   url.searchParams.set("select", "id,api_url,dataset_url,usage_status");
@@ -429,8 +454,11 @@ async function finishSyncLog(
   config: { url: string; key: string },
   logId: number,
   status: "completed" | "failed",
+  seen: number,
   inserted: number,
   updated: number,
+  duplicates: number,
+  failedRecords: number,
   errorCode?: string,
 ): Promise<void> {
   const url = new URL(`${config.url}/rest/v1/data_sync_logs`);
@@ -446,8 +474,11 @@ async function finishSyncLog(
     body: JSON.stringify({
       status,
       completed_at: new Date().toISOString(),
+      records_seen: seen,
       records_inserted: inserted,
       records_updated: updated,
+      records_duplicate: duplicates,
+      records_failed: failedRecords,
       error_code: errorCode ?? null,
     }),
     cache: "no-store",
@@ -459,9 +490,9 @@ async function upsertRows(
   config: { url: string; key: string },
   sourceId: SourceId,
   records: CatalogUpsert[],
-): Promise<{ inserted: number; updated: number }> {
+): Promise<{ seen: number; inserted: number; updated: number; duplicates: number }> {
   const rows = [...new Map(records.map((row) => [row.external_id, row])).values()];
-  if (!rows.length) return { inserted: 0, updated: 0 };
+  if (!rows.length) return { seen: records.length, inserted: 0, updated: 0, duplicates: 0 };
 
   const existing = new Set<string>();
   const externalIds = [...new Set(rows.map((row) => row.external_id))];
@@ -498,16 +529,50 @@ async function upsertRows(
     if (!response.ok) throw new SyncError("catalog_upsert_failed");
   }
   const updated = rows.filter((row) => existing.has(row.external_id)).length;
-  return { inserted: rows.length - updated, updated };
+  return {
+    seen: records.length,
+    inserted: rows.length - updated,
+    updated,
+    duplicates: records.length - rows.length,
+  };
 }
 
-async function syncOne(config: { url: string; key: string }, sourceId: SourceId): Promise<SyncResult> {
+async function expireClosedRecords(config: { url: string; key: string }, sourceId: SourceId): Promise<void> {
+  const url = new URL(`${config.url}/rest/v1/catalog_records`);
+  url.searchParams.set("source_id", `eq.${sourceId}`);
+  url.searchParams.set("data_status", "eq.active");
+  url.searchParams.set("expires_at", `lt.${new Date().toISOString()}`);
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      apikey: config.key,
+      Authorization: `Bearer ${config.key}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({ data_status: "expired", updated_at: new Date().toISOString() }),
+    cache: "no-store",
+  });
+  if (!response.ok) throw new SyncError("expired_records_update_failed");
+}
+
+async function syncOne(
+  config: { url: string; key: string },
+  sourceId: SourceId,
+  work24Key?: string,
+): Promise<SyncResult> {
   let logId: number | null = null;
+  let seen = 0;
+  let invalidRecords = 0;
   try {
     const source = await getSource(config, sourceId);
     logId = await startSyncLog(config, sourceId);
-    const key = process.env.DATA_GO_KR_API_KEY?.trim();
-    if (!key) throw new SyncError("data_go_kr_api_key_not_configured");
+    const key = sourceId === WORK24_SOURCE_ID ? work24Key : process.env.DATA_GO_KR_API_KEY?.trim();
+    if (!key) {
+      throw new SyncError(sourceId === WORK24_SOURCE_ID
+        ? "work24_api_key_not_configured"
+        : "data_go_kr_api_key_not_configured");
+    }
     let rows: CatalogUpsert[];
     switch (sourceId) {
       case "narailter-public-jobs":
@@ -522,15 +587,37 @@ async function syncOne(config: { url: string; key: string }, sourceId: SourceId)
       case "esaeil-training-courses":
         rows = await syncEsaeilCourses(source, key);
         break;
+      case WORK24_SOURCE_ID: {
+        const allRecords: Work24SyncRecord[] = [];
+        let total = 0;
+        const maxPages = 10;
+        for (let page = 1; page <= maxPages; page += 1) {
+          const result = await fetchWork24Jobs(key, page);
+          total = result.total;
+          seen += result.rawCount;
+          invalidRecords += result.rawCount - result.records.length;
+          allRecords.push(...result.records);
+          if (result.records.length < 100 || page * 100 >= total) break;
+          if (page < maxPages) await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+        rows = work24Rows(source, allRecords);
+        break;
+      }
     }
     const counts = await upsertRows(config, sourceId, rows);
-    await finishSyncLog(config, logId, "completed", counts.inserted, counts.updated);
-    return { source_id: sourceId, status: "completed", ...counts };
+    await expireClosedRecords(config, sourceId);
+    seen = Math.max(seen, counts.seen);
+    await finishSyncLog(config, logId, "completed", seen, counts.inserted, counts.updated, counts.duplicates, invalidRecords);
+    return { source_id: sourceId, status: "completed", ...counts, seen, failed_records: invalidRecords };
   } catch (error) {
-    const code = error instanceof SyncError ? error.code : "sync_failed";
+    const code = error instanceof SyncError
+      ? error.code
+      : error instanceof Error && /^work24_[a-z0-9_]+$/.test(error.message)
+        ? error.message
+        : "sync_failed";
     if (logId !== null) {
       try {
-        await finishSyncLog(config, logId, "failed", 0, 0, code);
+        await finishSyncLog(config, logId, "failed", seen, 0, 0, 0, invalidRecords, code);
       } catch {
         return { source_id: sourceId, status: "failed", error: "sync_log_update_failed" };
       }
@@ -571,9 +658,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "unsupported_or_unapproved_source" }, { status: 400 });
   }
 
+  const work24Key = request.headers.get("x-work24-api-key")?.trim() || process.env.WORK24_API_KEY?.trim();
+  if (work24Key && (work24Key.length > 512 || /[\r\n]/.test(work24Key))) {
+    return NextResponse.json({ error: "invalid_work24_api_key_configuration" }, { status: 400 });
+  }
   const results: SyncResult[] = [];
   for (const sourceId of [...new Set(requestedSources)]) {
-    results.push(await syncOne(config, sourceId));
+    results.push(await syncOne(config, sourceId, work24Key));
   }
   const failed = results.some((result) => result.status === "failed");
   return NextResponse.json({ status: failed ? "partial" : "completed", results }, { status: failed ? 502 : 200 });

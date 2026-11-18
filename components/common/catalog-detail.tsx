@@ -15,9 +15,22 @@ const listPaths: Record<CatalogType, string> = {
 const fieldLabels: Record<string, string> = {
   organization: "기관",
   employer: "기관/기업",
+  company: "기업",
   employment_type: "고용 형태",
+  salary_type: "급여 유형",
+  salary: "급여",
+  min_salary: "최소 급여",
+  max_salary: "최대 급여",
   education: "학력 요건",
+  minimum_education: "최소 학력",
+  maximum_education: "최대 학력",
   experience: "경력 요건",
+  career: "경력",
+  registration_date: "등록일",
+  occupation_code: "직종 코드",
+  cert_license_codes: "자격·면허 코드",
+  work_type: "근무 형태",
+  address: "주소",
   pay: "급여 정보",
   headcount: "모집 인원",
   region_code: "지역 코드",
@@ -55,11 +68,19 @@ function safeSourceUrl(value: string | null | undefined): string | null {
 }
 
 function getDisplayFields(fields: Record<string, unknown>): Array<[string, string]> {
-  return Object.entries(fields).flatMap(([key, value]) => {
-    if (/bizno|registration|representative|ceo|phone|fax/i.test(key)) return [];
+  const entries = Object.entries(fields).flatMap(([key, value]) => {
+    if (key === "work24_detail_checked_at") return [];
+    if (key === "work24_detail" && typeof value === "object" && value !== null && !Array.isArray(value)) {
+      return Object.entries(value).map(([detailKey, detailValue]) => [`work24_detail.${detailKey}`, detailValue] as [string, unknown]);
+    }
+    return [[key, value] as [string, unknown]];
+  });
+  return entries.flatMap(([key, value]) => {
+    if (/bizno|registration(?:number|no)|representative|ceo|phone|tel|email|mobile|fax|contact|manager|charger|담당자|연락처|전화|휴대폰|이메일/i.test(key)) return [];
     if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") return [];
     const text = String(value).trim();
-    return text ? [[fieldLabels[key] ?? key, text] as [string, string]] : [];
+    const label = key.startsWith("work24_detail.") ? key.slice("work24_detail.".length) : key;
+    return text ? [[fieldLabels[label] ?? label, text] as [string, string]] : [];
   });
 }
 

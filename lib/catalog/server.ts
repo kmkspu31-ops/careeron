@@ -71,6 +71,15 @@ export async function searchCatalog(type: CatalogViewType, filters: CatalogFilte
   if (category) url.searchParams.set("category", `eq.${category}`);
   const region = getSearchTerm(filters.region);
   if (region) url.searchParams.set("region", `ilike.*${region}*`);
+  if (selectedType === "job") {
+    if (filters.education) url.searchParams.set("fields->>education_code", `eq.${filters.education}`);
+    if (filters.career) url.searchParams.set("fields->>career_code", `eq.${filters.career}`);
+    if (filters.occupation) url.searchParams.set("fields->>occupation_code", `ilike.*${filters.occupation}*`);
+    if (filters.minPay) url.searchParams.set("fields->>max_salary", `gte.${filters.minPay}`);
+    if (filters.maxPay) url.searchParams.set("fields->>min_salary", `lte.${filters.maxPay}`);
+    const certLic = getSearchTerm(filters.certLic);
+    if (certLic) url.searchParams.set("fields->>cert_license_codes", `ilike.*${certLic}*`);
+  }
 
   try {
     const response = await requestRows(url, config);
